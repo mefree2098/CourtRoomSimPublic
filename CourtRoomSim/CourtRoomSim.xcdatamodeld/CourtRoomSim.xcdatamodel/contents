@@ -1,9 +1,102 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="1" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" usedWithCloudKit="false" userDefinedModelVersionIdentifier="">
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="23788" systemVersion="24D60" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="CaseEntity" representedClassName="CaseEntity" syncable="YES" codeGenerationType="class">
+        <attribute name="aiModel" optional="YES" attributeType="String"/>
+        <attribute name="crimeType" optional="YES" attributeType="String"/>
+        <attribute name="dateCreated" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="details" optional="YES" attributeType="String"/>
+        <attribute name="groundTruth" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="phase" optional="YES" attributeType="String"/>
+        <attribute name="userRole" optional="YES" attributeType="String"/>
+        <attribute name="verdict" optional="YES" attributeType="String"/>
+        <relationship name="conversations" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Conversation" inverseName="caseEntity" inverseEntity="Conversation"/>
+        <relationship name="judge" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CourtCharacter" inverseName="judgeCase" inverseEntity="CourtCharacter"/>
+        <relationship name="jury" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CourtCharacter" inverseName="juryCase" inverseEntity="CourtCharacter"/>
+        <relationship name="notes" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Note" inverseName="caseEntity" inverseEntity="Note"/>
+        <relationship name="opposingCounsel" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CourtCharacter"/>
+        <relationship name="police" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CourtCharacter" inverseName="policeCases" inverseEntity="CourtCharacter"/>
+        <relationship name="suspect" optional="YES" maxCount="1" deletionRule="Cascade" destinationEntity="CourtCharacter" inverseName="suspectCase" inverseEntity="CourtCharacter"/>
+        <relationship name="trialEvents" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="TrialEvent" inverseName="caseEntity" inverseEntity="TrialEvent"/>
+        <relationship name="trueGuiltyParty" optional="YES" maxCount="1" deletionRule="Cascade" destinationEntity="CourtCharacter" inverseName="trueGuiltyCase" inverseEntity="CourtCharacter"/>
+        <relationship name="userRoletoCase" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CaseEntity" inverseName="userRoletoCase" inverseEntity="CaseEntity"/>
+        <relationship name="verdictlink" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Verdict" inverseName="caseEntity" inverseEntity="Verdict"/>
+        <relationship name="victim" optional="YES" maxCount="1" deletionRule="Cascade" destinationEntity="CourtCharacter" inverseName="victimCase" inverseEntity="CourtCharacter"/>
+        <relationship name="witnesses" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CourtCharacter" inverseName="witnessCases" inverseEntity="CourtCharacter"/>
+    </entity>
+    <entity name="ChatHistory" representedClassName="ChatHistory" syncable="YES" codeGenerationType="class">
+        <attribute name="characterName" optional="YES" attributeType="String"/>
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="messages" optional="YES" attributeType="String"/>
+        <attribute name="phase" optional="YES" attributeType="String"/>
+        <relationship name="caseEntity" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CaseEntity"/>
+    </entity>
+    <entity name="Conversation" representedClassName="Conversation" syncable="YES" codeGenerationType="class">
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="message" optional="YES" attributeType="String"/>
+        <attribute name="phase" optional="YES" attributeType="String"/>
+        <attribute name="sender" optional="YES" attributeType="String"/>
+        <attribute name="timestamp" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <relationship name="caseEntity" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CaseEntity" inverseName="conversations" inverseEntity="CaseEntity"/>
+        <relationship name="courtCharacter" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CourtCharacter" inverseName="conversations" inverseEntity="CourtCharacter"/>
+    </entity>
+    <entity name="CourtCharacter" representedClassName="CourtCharacter" syncable="YES" codeGenerationType="class">
+        <attribute name="background" optional="YES" attributeType="String"/>
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="imageData" optional="YES" attributeType="Binary"/>
+        <attribute name="imagePrompt" optional="YES" attributeType="String"/>
+        <attribute name="motivation" optional="YES" attributeType="String"/>
+        <attribute name="name" optional="YES" attributeType="String"/>
+        <attribute name="personality" optional="YES" attributeType="String"/>
+        <attribute name="role" optional="YES" attributeType="String"/>
+        <relationship name="caseEntity" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CaseEntity"/>
+        <relationship name="conversations" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Conversation" inverseName="courtCharacter" inverseEntity="Conversation"/>
+        <relationship name="judgeCase" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CaseEntity" inverseName="judge" inverseEntity="CaseEntity"/>
+        <relationship name="juryCase" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CaseEntity" inverseName="jury" inverseEntity="CaseEntity"/>
+        <relationship name="policeCases" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CaseEntity" inverseName="police" inverseEntity="CaseEntity"/>
+        <relationship name="suspectCase" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CaseEntity" inverseName="suspect" inverseEntity="CaseEntity"/>
+        <relationship name="trueGuiltyCase" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CaseEntity" inverseName="trueGuiltyParty" inverseEntity="CaseEntity"/>
+        <relationship name="victimCase" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CaseEntity" inverseName="victim" inverseEntity="CaseEntity"/>
+        <relationship name="witnessCases" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CaseEntity" inverseName="witnesses" inverseEntity="CaseEntity"/>
+    </entity>
     <entity name="Item" representedClassName="Item" syncable="YES" codeGenerationType="class">
         <attribute name="timestamp" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
     </entity>
-    <elements>
-        <element name="Item" positionX="-63" positionY="-18" width="128" height="44"/>
-    </elements>
+    <entity name="JuryMember" representedClassName="JuryMember" syncable="YES" codeGenerationType="class">
+        <attribute name="deliberation" optional="YES" attributeType="String"/>
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="name" optional="YES" attributeType="String"/>
+        <attribute name="vote" optional="YES" attributeType="String"/>
+        <relationship name="verdict" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Verdict" inverseName="juryMembers" inverseEntity="Verdict"/>
+    </entity>
+    <entity name="Note" representedClassName="Note" syncable="YES" codeGenerationType="class">
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="text" optional="YES" attributeType="String"/>
+        <attribute name="timestamp" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <relationship name="caseEntity" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CaseEntity" inverseName="notes" inverseEntity="CaseEntity"/>
+    </entity>
+    <entity name="PlayerProfile" representedClassName="PlayerProfile" syncable="YES" codeGenerationType="class">
+        <attribute name="gender" optional="YES" attributeType="String"/>
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="imageData" optional="YES" attributeType="Binary"/>
+        <attribute name="name" optional="YES" attributeType="String"/>
+        <attribute name="profileDescription" optional="YES" attributeType="String"/>
+    </entity>
+    <entity name="TrialEvent" representedClassName="TrialEvent" syncable="YES" codeGenerationType="class">
+        <attribute name="details" optional="YES" attributeType="String"/>
+        <attribute name="eventType" optional="YES" attributeType="String"/>
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="message" optional="YES" attributeType="String"/>
+        <attribute name="speaker" optional="YES" attributeType="String"/>
+        <attribute name="summary" optional="YES" attributeType="String"/>
+        <attribute name="timestamp" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <relationship name="caseEntity" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CaseEntity" inverseName="trialEvents" inverseEntity="CaseEntity"/>
+    </entity>
+    <entity name="Verdict" representedClassName="Verdict" syncable="YES" codeGenerationType="class">
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="isGuilty" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
+        <attribute name="juryDeliberation" optional="YES" attributeType="String"/>
+        <relationship name="caseEntity" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CaseEntity" inverseName="verdictlink" inverseEntity="CaseEntity"/>
+        <relationship name="juryMembers" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="JuryMember" inverseName="verdict" inverseEntity="JuryMember"/>
+    </entity>
 </model>
