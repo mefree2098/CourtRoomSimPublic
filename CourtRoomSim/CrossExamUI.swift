@@ -1,48 +1,75 @@
+// CrossExamUI.swift
+// CourtRoomSim
+
 import UIKit
 
-/// UIKit helper that pops a modal allowing the user to
-/// object or allow an opposing‑counsel question during trial.
+/// UIKit helper that pops an objection dialog during cross‑examination.
 final class CrossExamUI {
-
     static let shared = CrossExamUI()
     private init() {}
 
-    private var current: (String, (Bool,String)->Void)?
+    private var current: (question: String, completion: (Bool, String) -> Void)?
 
-    /// Present objection dialog.
+    /// Present the objection/allow UI for the given question.
     func present(question: String,
                  completion: @escaping (Bool, String) -> Void)
     {
         current = (question, completion)
-
         DispatchQueue.main.async {
-            guard let win = UIApplication.shared.windows.first else { return }
-            win.rootViewController?.present(self.makeVC(question), animated: true)
+            guard let top = CrossExamUI.topViewController() else { return }
+            top.present(self.makeAlert(for: question), animated: true)
         }
     }
 
-    // MARK: – private
-    private func makeVC(_ q: String) -> UIViewController {
-        let vc = UIAlertController(title: "Opponent Question",
-                                   message: q,
-                                   preferredStyle: .alert)
-        vc.addTextField { $0.placeholder = "Objection reason (optional)" }
+    // MARK: – Build the UIAlertController
 
-        vc.addAction(UIAlertAction(title: "Object", style: .destructive) { _ in
-            let reason = vc.textFields?.first?.text ?? "Objection"
+    private func makeAlert(for q: String) -> UIViewController {
+        let alert = UIAlertController(
+            title: "Opponent Question",
+            message: q,
+            preferredStyle: .alert
+        )
+        alert.addTextField { $0.placeholder = "Objection reason (optional)" }
+        alert.addAction(.init(title: "Object", style: .destructive) { _ in
+            let reason = alert.textFields?.first?.text ?? "Objection"
             self.finish(allowed: false, reason: reason)
         })
-
-        vc.addAction(UIAlertAction(title: "Allow", style: .default) { _ in
+        alert.addAction(.init(title: "Allow", style: .default) { _ in
             self.finish(allowed: true, reason: "")
         })
-
-        return vc
+        return alert
     }
 
     private func finish(allowed: Bool, reason: String) {
-        guard let c = current else { return }
+        guard let pair = current else { return }
         current = nil
-        c.1(allowed, reason)
+        pair.completion(allowed, reason)
+    }
+
+    // MARK: – Find the topmost UIViewController
+
+    private static func topViewController() -> UIViewController? {
+        // Grab the current active scene's key window
+        let scenes = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+        for scene in scenes where scene.activationState == .foregroundActive {
+            if let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
+                return traverse(from: root)
+            }
+        }
+        return nil
+    }
+
+    private static func traverse(from vc: UIViewController) -> UIViewController {
+        if let presented = vc.presentedViewController {
+            return traverse(from: presented)
+        }
+        if let nav = vc as? UINavigationController, let top = nav.topViewController {
+            return traverse(from: top)
+        }
+        if let tab = vc as? UITabBarController, let sel = tab.selectedViewController {
+            return traverse(from: sel)
+        }
+        return vc
     }
 }

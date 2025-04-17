@@ -5,7 +5,6 @@ import Foundation
 import SwiftUI
 
 extension TrialFlowView {
-
     // MARK: – AI Opponent Opening/Closing Statements
 
     /// AI opponent responds with ONE concise (max 2 sentences) statement, then rests.
@@ -16,9 +15,9 @@ extension TrialFlowView {
 
         isLoading = true
         let systemPrompt = """
-        You are \(opp.name ?? "Opposing Counsel"), the \(opp.role ?? "Counsel"). \
+        You are \(opp.name ?? "Opposing Counsel"), the \(opp.role ?? "Counsel") in a United States criminal court under the supervision of the presiding judge. \
         Provide exactly ONE concise courtroom statement (no more than two sentences) in response to the opposing counsel. \
-        Once you finish, explicitly state "I rest my case."
+        Once finished, explicitly say “I rest my case.”
         """
         let userPrompt = """
         Opponent said: "\(userText)"
@@ -31,7 +30,7 @@ extension TrialFlowView {
             user: userPrompt
         ) { result in
             DispatchQueue.main.async {
-                isLoading = false
+                self.isLoading = false
                 switch result {
                 case .success(let reply):
                     recordEvent(opp.name ?? "Opposing Counsel", reply)
@@ -45,11 +44,12 @@ extension TrialFlowView {
 
     // MARK: – AI Witness Answer
 
+    /// In‑character witness answer callback.
     func gptWitnessAnswer(
-        witness: String,
-        question: String,
-        context: String,
-        onReply: @escaping (String) -> Void
+        _ witness: String,
+        _ question: String,
+        _ context: String,
+        _ onReply: @escaping (String) -> Void
     ) {
         let apiKey = UserDefaults.standard.string(forKey: "openAIKey") ?? ""
         guard !apiKey.isEmpty else {
@@ -58,10 +58,10 @@ extension TrialFlowView {
         }
 
         isLoading = true
-        let systemPrompt = "You are \(witness), answering in first person, no AI references."
+        let systemPrompt = "You are \(witness), answering in first person, no AI references, fully addressing the question based on all prior context."
         let userPrompt = """
-        Q: "\(question)"
         Context: \(context)
+        Q: "\(question)"
         """
 
         OpenAIHelper.shared.chatCompletion(
@@ -70,7 +70,7 @@ extension TrialFlowView {
             user: userPrompt
         ) { result in
             DispatchQueue.main.async {
-                isLoading = false
+                self.isLoading = false
                 switch result {
                 case .success(let text):
                     onReply(text)
@@ -83,12 +83,12 @@ extension TrialFlowView {
 
     // MARK: – AI Opponent Cross‑Exam
 
-    /// Asks exactly ONE question per call, then stops.
+    /// AI opponent asks exactly ONE concise question per call, no repeats.
     func gptOpponentCrossExam(
-        witness: String,
-        context: String,
-        askedSoFar: [String],
-        onNewQuestion: @escaping (String?) -> Void
+        _ witness: String,
+        _ context: String,
+        _ askedSoFar: [String],
+        _ onNewQuestion: @escaping (String?) -> Void
     ) {
         guard let opp = caseEntity.opposingCounsel else {
             onNewQuestion(nil); return
@@ -100,8 +100,8 @@ extension TrialFlowView {
 
         isLoading = true
         let systemPrompt = """
-        You are \(opp.name ?? "Opposing Counsel"), the \(opp.role ?? "Counsel"). \
-        Provide exactly ONE concise cross‑examination question (no repeats). \
+        You are \(opp.name ?? "Opposing Counsel"), the \(opp.role ?? "Counsel") in a United States criminal court. \
+        Under the judge’s supervision, ask exactly ONE concise cross‑examination question (no repeats). \
         Do NOT bundle multiple questions.
         """
         let userPrompt = """
@@ -116,16 +116,20 @@ extension TrialFlowView {
             user: userPrompt
         ) { result in
             DispatchQueue.main.async {
-                isLoading = false
+                self.isLoading = false
                 switch result {
                 case .success(let question):
                     let clean = question.trimmingCharacters(in: .whitespacesAndNewlines)
                     if askedSoFar.contains(where: { $0.caseInsensitiveCompare(clean) == .orderedSame }) {
+                        // Judge intercedes
+                        recordEvent("Judge", "Counsel, please move on to a different question.")
                         onNewQuestion(nil)
                     } else {
                         onNewQuestion(clean)
                     }
                 case .failure:
+                    // Judge fallback
+                    recordEvent("Judge", "Counsel, please proceed.")
                     onNewQuestion(nil)
                 }
             }

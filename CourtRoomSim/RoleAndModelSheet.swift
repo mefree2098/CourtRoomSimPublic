@@ -9,31 +9,33 @@ struct RoleAndModelSheet: View {
     @Environment(\.managedObjectContext) private var viewContext
     @Environment(\.dismiss) private var dismiss
 
-    // MARK: – Error state
-    @State private var showErrorAlert = false
-    @State private var errorMessage = ""
-
     var body: some View {
         NavigationView {
             Form {
-                // Role picker
-                Section(header: Text("Select your role")) {
-                    Picker("Role", selection: $viewModel.chosenRole) {
+                // Role picker (no header, no inline label)
+                Section {
+                    Picker(selection: $viewModel.chosenRole) {
                         ForEach(UserRole.allCases, id: \.self) { role in
                             Text(role.rawValue.capitalized).tag(role)
                         }
+                    } label: {
+                        EmptyView()
                     }
                     .pickerStyle(.inline)
+                    .labelsHidden()
                 }
 
-                // Model picker
-                Section(header: Text("Select AI model")) {
-                    Picker("Model", selection: $viewModel.chosenModel) {
+                // Model picker (no header, no inline label)
+                Section {
+                    Picker(selection: $viewModel.chosenModel) {
                         ForEach(AiModel.allCases, id: \.self) { model in
                             Text(model.displayName).tag(model)
                         }
+                    } label: {
+                        EmptyView()
                     }
                     .pickerStyle(.inline)
+                    .labelsHidden()
                 }
 
                 // Create Case button
@@ -60,12 +62,6 @@ struct RoleAndModelSheet: View {
                     Button("Cancel") { dismiss() }
                 }
             }
-            // Alert on error
-            .alert("Error Creating Case", isPresented: $showErrorAlert) {
-                Button("OK") { }
-            } message: {
-                Text(errorMessage)
-            }
         }
     }
 
@@ -74,26 +70,8 @@ struct RoleAndModelSheet: View {
             role: viewModel.chosenRole,
             model: viewModel.chosenModel,
             into: viewContext
-        ) { result in
-            DispatchQueue.main.async {
-                switch result {
-                case .success:
-                    dismiss()
-                case .failure(let err):
-                    // Show alert and log to console
-                    errorMessage = err.localizedDescription
-                    showErrorAlert = true
-                    print("❌ Failed to create case:", err)
-                }
-            }
+        ) { _ in
+            dismiss()
         }
-    }
-}
-
-struct RoleAndModelSheet_Previews: PreviewProvider {
-    static var previews: some View {
-        let container = PersistenceController.shared.container
-        RoleAndModelSheet(viewModel: CaseCreatorViewModel())
-            .environment(\.managedObjectContext, container.viewContext)
     }
 }

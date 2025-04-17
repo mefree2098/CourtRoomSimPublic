@@ -1,32 +1,23 @@
-//
-//  CaseRosterSheet.swift
-//  CourtRoomSim
-//
-//  Created by LeadDev on 2025‑05‑01.
-//
+// CaseRosterSheet.swift
+// CourtRoomSim
 
 import SwiftUI
 import CoreData
 
-/// A sheet that lists every participant—judge, counsel, witnesses, jury—in the case.
 struct CaseRosterSheet: View {
-
-    // MARK: – Dependencies
     @ObservedObject var caseEntity: CaseEntity
     @Environment(\.dismiss) private var dismiss
 
-    // MARK: – Body
     var body: some View {
         NavigationView {
             List {
-                rosterSection("Judge",              objects: [caseEntity.judge])
-                rosterSection("Opposing Counsel",   objects: [caseEntity.opposingCounsel])
-                rosterSection("Victim",             objects: [caseEntity.victim])
-                rosterSection("Suspect",            objects: [caseEntity.suspect])
-                rosterSetSection("Police",          set: caseEntity.police)
-                rosterSetSection("Witnesses",       set: caseEntity.witnesses)
-                rosterSetSection("Jury (\(juryCount))",
-                                 set: caseEntity.jury)
+                rosterSection("Judge", [caseEntity.judge])
+                rosterSection("Opposing Counsel", [caseEntity.opposingCounsel])
+                rosterSection("Victim", [caseEntity.victim])
+                rosterSection("Suspect", [caseEntity.suspect])
+                rosterSetSection("Police", set: caseEntity.police)
+                rosterSetSection("Witnesses", set: caseEntity.witnesses)
+                rosterSetSection("Jury (\(juryCount))", set: caseEntity.jury)
             }
             .navigationTitle("Case Roster")
             .toolbar {
@@ -37,67 +28,73 @@ struct CaseRosterSheet: View {
         }
     }
 
-    // MARK: – Helpers
     private var juryCount: Int {
         (caseEntity.jury as? Set<CourtCharacter>)?.count ?? 0
     }
 
-    @ViewBuilder
-    private func rosterSection(_ title: String,
-                               objects: [CourtCharacter?]) -> some View {
+    private func rosterSection(
+        _ title: String,
+        _ objects: [CourtCharacter?]
+    ) -> some View {
         let items = objects.compactMap { $0 }
-        if !items.isEmpty {
-            Section(header: Text(title)) {
-                ForEach(items, id: \.id) { CharacterRow(character: $0) }
+        return Section(header: Text(title)) {
+            ForEach(items, id: \.id) { c in
+                NavigationLink(destination:
+                    CharacterTranscriptView(caseEntity: caseEntity, character: c)
+                ) {
+                    CharacterRow(character: c)
+                }
             }
         }
     }
 
-    @ViewBuilder
-    private func rosterSetSection(_ title: String,
-                                  set: NSSet?) -> some View {
-        if let s = set as? Set<CourtCharacter>, !s.isEmpty {
-            Section(header: Text(title)) {
-                ForEach(Array(s), id: \.id) { CharacterRow(character: $0) }
-            }
+    private func rosterSetSection(
+        _ title: String,
+        set: NSSet?
+    ) -> some View {
+        guard let s = set as? Set<CourtCharacter>, !s.isEmpty else {
+            return AnyView(EmptyView())
         }
+        return AnyView(
+            Section(header: Text(title)) {
+                ForEach(Array(s), id: \.id) { c in
+                    NavigationLink(destination:
+                        CharacterTranscriptView(caseEntity: caseEntity, character: c)
+                    ) {
+                        CharacterRow(character: c)
+                    }
+                }
+            }
+        )
     }
 }
 
-/// A single row showing a character’s avatar, name, and personality.
 private struct CharacterRow: View {
     let character: CourtCharacter
-
     var body: some View {
         HStack {
-            avatar
+            if let data = character.imageData,
+               let ui = UIImage(data: data) {
+                Image(uiImage: ui)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 40, height: 40)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            } else {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.gray.opacity(0.3))
+                    .frame(width: 40, height: 40)
+                    .overlay(Text("No\nImg")
+                        .font(.caption2)
+                        .multilineTextAlignment(.center)
+                        .foregroundColor(.secondary))
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text(character.name ?? "—").font(.headline)
                 if let p = character.personality {
                     Text(p).font(.caption).foregroundColor(.secondary)
                 }
             }
-        }
-    }
-
-    @ViewBuilder
-    private var avatar: some View {
-        if let data = character.imageData, let ui = UIImage(data: data) {
-            Image(uiImage: ui)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 40, height: 40)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-        } else {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color.gray.opacity(0.3))
-                .frame(width: 40, height: 40)
-                .overlay(
-                    Text("No\nImg")
-                        .font(.caption2)
-                        .multilineTextAlignment(.center)
-                        .foregroundColor(.secondary)
-                )
         }
     }
 }

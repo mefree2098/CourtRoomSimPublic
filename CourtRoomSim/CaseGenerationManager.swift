@@ -48,6 +48,8 @@ struct CaseGenerationManager {
         }
     }
 
+    // MARK: – JSON → Core‑Data
+
     private static func makeCaseEntity(
         fromJSON json: String,
         role: UserRole,
@@ -63,12 +65,12 @@ struct CaseGenerationManager {
         }
 
         let c = CaseEntity(context: ctx)
-        c.id           = UUID()
-        c.phase        = CasePhase.preTrial.rawValue
-        c.userRole     = role.rawValue
-        c.aiModel      = model.rawValue
-        c.crimeType    = dict["crimeType"] as? String
-        c.details      = dict["scenarioSummary"] as? String
+        c.id        = UUID()
+        c.phase     = CasePhase.preTrial.rawValue
+        c.userRole  = role.rawValue
+        c.aiModel   = model.rawValue
+        c.crimeType = dict["crimeType"] as? String
+        c.details   = dict["scenarioSummary"] as? String
 
         func buildCharacter(from raw: Any?,
                             defaultRole: String,
@@ -98,15 +100,15 @@ struct CaseGenerationManager {
         }
 
         // Victim & Suspect
-        c.victim  = buildCharacter(from: dict["victim"],  defaultRole: "Victim", ctx: ctx)
-        c.suspect = buildCharacter(from: dict["suspect"], defaultRole: "Suspect",ctx: ctx)
+        c.victim  = buildCharacter(from: dict["victim"],  defaultRole: "Victim",  ctx: ctx)
+        c.suspect = buildCharacter(from: dict["suspect"], defaultRole: "Suspect", ctx: ctx)
 
-        // Witnesses (≥2)
+        // Witnesses
         (dict["witnesses"] as? [[String:Any]])?
             .compactMap { buildCharacter(from: $0, defaultRole: "Witness", ctx: ctx) }
             .forEach(c.addToWitnesses)
 
-        // Police (≥1)
+        // Police
         (dict["police"] as? [[String:Any]])?
             .compactMap { buildCharacter(from: $0, defaultRole: "Police", ctx: ctx) }
             .forEach(c.addToPolice)
@@ -115,7 +117,6 @@ struct CaseGenerationManager {
         if let raw = dict["counsel"] as? [String:Any],
            let counselChar = buildCharacter(from: raw, defaultRole: "Counsel", ctx: ctx)
         {
-            // Override to the opposite role of the user
             counselChar.role = (role == .prosecutor)
                 ? "Defense Counsel"
                 : "Prosecutor"
@@ -141,6 +142,8 @@ struct CaseGenerationManager {
         return c
     }
 
+    // MARK: – Portrait Generation w/ Retry
+
     private static func generatePortraits(for caseEntity: CaseEntity,
                                           in ctx: NSManagedObjectContext)
     {
@@ -153,17 +156,35 @@ struct CaseGenerationManager {
         chars += (caseEntity.police    as? Set<CourtCharacter>) ?? []
 
         guard let apiKey = try? KeychainManager.shared.retrieveAPIKey() else { return }
+
         for char in chars {
             let prompt = "A pixel‑art portrait of \(char.name!), a \(char.role!) in a courtroom."
-            CharacterImageManager.shared.generatePixelArtImage(prompt: prompt,
-                                                               apiKey: apiKey) { result in
-                if case .success(let data) = result {
-                    DispatchQueue.main.async {
-                        char.imageData = data
-                        try? ctx.save()
+            func attempt() {
+                CharacterImageManager.shared.generatePixelArtImage(prompt: prompt,
+                                                                   apiKey: apiKey) { result in
+                    switch result {
+                    case .success(let data):
+                        DispatchQueue.main.async {
+                            char.imageData = data
+                            try? ctx.save()
+                        }
+                    case .failure:
+                        // Retry once after 2s
+                        DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
+                            CharacterImageManager.shared.generatePixelArtImage(prompt: prompt,
+                                                                               apiKey: apiKey) { retry in
+                                if case .success(let data2) = retry {
+                                    DispatchQueue.main.async {
+                                        char.imageData = data2
+                                        try? ctx.save()
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
+            attempt()
         }
     }
 }
