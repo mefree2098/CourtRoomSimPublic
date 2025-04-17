@@ -1,47 +1,72 @@
-//
-//  OpeningStatementsView.swift
-//  CourtRoomSim
-//
-//  FULL SOURCE – 2025‑05‑01
-//
+// OpeningStatementsView.swift
+// CourtRoomSim
 
 import SwiftUI
 import CoreData
 
 struct OpeningStatementsView: View {
-
-    // injected
+    // MARK: – Injected dependencies
     @ObservedObject var caseEntity: CaseEntity
     @Binding var currentSpeaker: String
-    let record: (String, String) -> Void
-    let autoOpponent: (String) -> Void
-    let moveNext: () -> Void          // <— single, consistent label
+    var record: (_ speaker: String, _ message: String) -> Void
+    var autoOpponent: (_ userText: String) -> Void
+    var moveNext: () -> Void
 
-    // local
-    @State private var text = ""
+    // MARK: – Local state
+    @State private var statementText: String = ""
+    @State private var isLoading = false
+    @State private var errorMessage: String?
 
     var body: some View {
-        VStack(spacing: 12) {
-            Text("Opening Statement – \(currentSpeaker)")
+        VStack(spacing: 16) {
+            Text("\(currentSpeaker)'s Opening Statement")
                 .font(.headline)
 
-            TextEditor(text: $text)
-                .frame(minHeight: 90)
-                .border(Color.gray)
-                .padding(.horizontal)
+            TextEditor(text: $statementText)
+                .frame(height: 200)
+                .overlay(RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.gray.opacity(0.5)))
 
-            Button("Submit") {
-                let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !clean.isEmpty else { return }
-                record(currentSpeaker, clean)
-                text = ""
-                autoOpponent(clean)     // AI replies; that will in turn call moveNext
+            if let err = errorMessage {
+                Text(err)
+                    .foregroundColor(.red)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
             }
-            .padding(.bottom, 4)
 
-            Button("Skip to Next Stage") { moveNext() }
-                .font(.caption)
+            Button {
+                submitStatement()
+            } label: {
+                HStack {
+                    Spacer()
+                    if isLoading {
+                        ProgressView()
+                    } else {
+                        Text("Submit")
+                    }
+                    Spacer()
+                }
+            }
+            .disabled(statementText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
+
+            Spacer()
         }
-        .padding(.vertical)
+        .padding()
+        .navigationTitle("Opening")
+    }
+
+    private func submitStatement() {
+        let text = statementText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+
+        // 1) Record the user’s statement in the transcript
+        record(currentSpeaker, text)
+
+        // 2) Ask the AI opponent to respond (this will call record + advanceStage)
+        isLoading = true
+        errorMessage = nil
+        autoOpponent(text)
     }
 }
+
+// No previews needed since this is wired by TrialFlowView

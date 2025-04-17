@@ -1,43 +1,93 @@
+// KeychainManager.swift
+// CourtRoomSim
+
 import Foundation
 import Security
 
+/// A simple wrapper around the iOS Keychain for storing/retrieving the OpenAI API key.
 final class KeychainManager {
     static let shared = KeychainManager()
     private init() {}
-    
-    private let service = "CourtRoomSimService"
-    private let account = "OpenAIApiKey"
-    
-    func saveAPIKey(_ key: String) {
-        let keyData = Data(key.utf8)
-        let query: [String: Any] = [
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecClass as String: kSecClassGenericPassword
+
+    private let service = Bundle.main.bundleIdentifier ?? "CourtRoomSim"
+    private let account = "openAIKey"
+
+    /// Save or update the API key in the Keychain.
+    func saveAPIKey(_ key: String) throws {
+        let data = Data(key.utf8)
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
         ]
-        SecItemDelete(query as CFDictionary)
-        var attributes = query
-        attributes[kSecValueData as String] = keyData
-        let status = SecItemAdd(attributes as CFDictionary, nil)
-        if status != errSecSuccess {
-            fatalError("Keychain: Unable to save API key (code \(status)).")
+
+        let status = SecItemCopyMatching(query as CFDictionary, nil)
+        switch status {
+        case errSecSuccess:
+            // Item exists — update it
+            let attributes: [CFString: Any] = [
+                kSecValueData: data
+            ]
+            let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+            guard updateStatus == errSecSuccess else {
+                throw KeychainError.unhandledStatus(updateStatus)
+            }
+
+        case errSecItemNotFound:
+            // Item not found — add it
+            var addQuery = query
+            addQuery[kSecValueData] = data
+            let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+            guard addStatus == errSecSuccess else {
+                throw KeychainError.unhandledStatus(addStatus)
+            }
+
+        default:
+            throw KeychainError.unhandledStatus(status)
         }
     }
-    
-    func getAPIKey() -> String? {
-        let query: [String: Any] = [
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecClass as String: kSecClassGenericPassword,
-            kSecReturnData as String: true
+
+    /// Retrieve the API key from the Keychain.
+    func retrieveAPIKey() throws -> String {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
+            kSecReturnData: kCFBooleanTrue as Any,
+            kSecMatchLimit: kSecMatchLimitOne
         ]
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if status == errSecSuccess,
-           let keyData = result as? Data,
-           let key = String(data: keyData, encoding: .utf8) {
-            return key
+
+        var item: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status != errSecItemNotFound else {
+            throw KeychainError.noKey
         }
-        return nil
+        guard status == errSecSuccess else {
+            throw KeychainError.unhandledStatus(status)
+        }
+        guard let data = item as? Data,
+              let key = String(data: data, encoding: .utf8)
+        else {
+            throw KeychainError.invalidKeyData
+        }
+        return key
+    }
+}
+
+/// Errors that can occur when interacting with the Keychain.
+enum KeychainError: Error, LocalizedError {
+    case noKey
+    case invalidKeyData
+    case unhandledStatus(OSStatus)
+
+    var errorDescription: String? {
+        switch self {
+        case .noKey:
+            return "No API key found in Keychain."
+        case .invalidKeyData:
+            return "The data retrieved from Keychain was invalid."
+        case .unhandledStatus(let status):
+            return "Keychain error (status: \(status))."
+        }
     }
 }

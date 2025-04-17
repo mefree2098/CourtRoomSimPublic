@@ -1,26 +1,22 @@
-//  RoleAndModelSheet.swift
-//  CourtRoomSim
-//
-//  Presents two pickers—Role and Model—then creates a new case
-//  through CaseCreatorViewModel.generate(_:model:into:completion:)
-//
+// RoleAndModelSheet.swift
+// CourtRoomSim
 
 import SwiftUI
 import CoreData
 
 struct RoleAndModelSheet: View {
-
-    // view‑model supplied by the presenting view
     @ObservedObject var viewModel: CaseCreatorViewModel
-
-    // Core‑Data context needed for persist‑ing the new case
     @Environment(\.managedObjectContext) private var viewContext
     @Environment(\.dismiss) private var dismiss
+
+    // MARK: – Error state
+    @State private var showErrorAlert = false
+    @State private var errorMessage = ""
 
     var body: some View {
         NavigationView {
             Form {
-                // ── Role picker ───────────────────────────────────────────
+                // Role picker
                 Section(header: Text("Select your role")) {
                     Picker("Role", selection: $viewModel.chosenRole) {
                         ForEach(UserRole.allCases, id: \.self) { role in
@@ -30,7 +26,7 @@ struct RoleAndModelSheet: View {
                     .pickerStyle(.inline)
                 }
 
-                // ── Model picker ──────────────────────────────────────────
+                // Model picker
                 Section(header: Text("Select AI model")) {
                     Picker("Model", selection: $viewModel.chosenModel) {
                         ForEach(AiModel.allCases, id: \.self) { model in
@@ -40,7 +36,7 @@ struct RoleAndModelSheet: View {
                     .pickerStyle(.inline)
                 }
 
-                // ── Generate button ───────────────────────────────────────
+                // Create Case button
                 Section {
                     Button {
                         createCase()
@@ -64,36 +60,40 @@ struct RoleAndModelSheet: View {
                     Button("Cancel") { dismiss() }
                 }
             }
+            // Alert on error
+            .alert("Error Creating Case", isPresented: $showErrorAlert) {
+                Button("OK") { }
+            } message: {
+                Text(errorMessage)
+            }
         }
     }
 
-    // ------------------------------------------------------------------
     private func createCase() {
-        viewModel.generate(role:  viewModel.chosenRole,
-                           model: viewModel.chosenModel,
-                           into:  viewContext) { _ in
-            // We don’t need the result here; CaseListView listens for changes
-            dismiss()
+        viewModel.generate(
+            role: viewModel.chosenRole,
+            model: viewModel.chosenModel,
+            into: viewContext
+        ) { result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success:
+                    dismiss()
+                case .failure(let err):
+                    // Show alert and log to console
+                    errorMessage = err.localizedDescription
+                    showErrorAlert = true
+                    print("❌ Failed to create case:", err)
+                }
+            }
         }
     }
 }
 
-// ----------------------------------------------------------------------
-// Preview
-// ----------------------------------------------------------------------
-
-#if DEBUG
 struct RoleAndModelSheet_Previews: PreviewProvider {
     static var previews: some View {
-        // Mock in‑memory Core‑Data stack for the preview
-        let container = NSPersistentContainer(name: "CourtRoomSim")
-        container.persistentStoreDescriptions.first!.url = URL(fileURLWithPath: "/dev/null")
-        container.loadPersistentStores(completionHandler: { _, _ in })
-
-        return RoleAndModelSheet(
-            viewModel: CaseCreatorViewModel()
-        )
-        .environment(\.managedObjectContext, container.viewContext)
+        let container = PersistenceController.shared.container
+        RoleAndModelSheet(viewModel: CaseCreatorViewModel())
+            .environment(\.managedObjectContext, container.viewContext)
     }
 }
-#endif

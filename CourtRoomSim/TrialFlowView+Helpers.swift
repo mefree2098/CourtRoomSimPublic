@@ -1,120 +1,134 @@
+// TrialFlowView+Helpers.swift
+// CourtRoomSim
+
 import Foundation
 import SwiftUI
 
-// MARK: – GPT helper extension (single source‑of‑truth)
-
 extension TrialFlowView {
 
-    // --------------------------------------------------------------
-    // convenience flags
-    // --------------------------------------------------------------
+    // MARK: – AI Opponent Opening/Closing Statements
 
-    var isUserProsecutorFlag: Bool {
-        (caseEntity.userRole ?? "").lowercased().contains("prosecutor")
-    }
-
-    // --------------------------------------------------------------
-    // GPT wrappers
-    // --------------------------------------------------------------
-
-    /// One short opponent statement then advance stage.
+    /// AI opponent responds with ONE concise (max 2 sentences) statement, then rests.
     func gptOpponentStatement(userText: String) {
         guard let opp = caseEntity.opposingCounsel else { return }
-        guard let key = UserDefaults.standard.string(forKey: "openAIKey"),
-              !key.isEmpty else { return }
+        let apiKey = UserDefaults.standard.string(forKey: "openAIKey") ?? ""
+        guard !apiKey.isEmpty else { return }
 
         isLoading = true
-        let role = isUserProsecutorFlag ? "Defense" : "Prosecution"
+        let systemPrompt = """
+        You are \(opp.name ?? "Opposing Counsel"), the \(opp.role ?? "Counsel"). \
+        Provide exactly ONE concise courtroom statement (no more than two sentences) in response to the opposing counsel. \
+        Once you finish, explicitly state "I rest my case."
+        """
+        let userPrompt = """
+        Opponent said: "\(userText)"
+        Case summary: \(caseEntity.details ?? "")
+        """
 
-        OpenAIRequest.send(
-            model:  caseEntity.aiModel ?? "o4-mini",
-            system: "You are \(opp.name ?? role) giving ONE short courtroom statement.",
-            user:   "User said: \"\(userText)\"  Case: \(caseEntity.details ?? "")",
-            apiKey: key
+        OpenAIHelper.shared.chatCompletion(
+            model: caseEntity.aiModel ?? AiModel.o4Mini.rawValue,
+            system: systemPrompt,
+            user: userPrompt
         ) { result in
-            DispatchQueue.main.async {                             // capture `self` strongly – no retain cycle
-                self.isLoading = false
-                if case .success(let reply) = result {
-                    self.recordEvent(role, reply)
-                    self.advanceStage()
+            DispatchQueue.main.async {
+                isLoading = false
+                switch result {
+                case .success(let reply):
+                    recordEvent(opp.name ?? "Opposing Counsel", reply)
+                    advanceStage()
+                case .failure(let err):
+                    errorMessage = err.localizedDescription
                 }
             }
         }
     }
 
-    /// In‑character witness answer.
-    func gptWitnessAnswer(witness: String,
-                          question: String,
-                          context: String,
-                          onReply: @escaping (String) -> Void)
-    {
-        guard let key = UserDefaults.standard.string(forKey: "openAIKey"),
-              !key.isEmpty else { onReply("No API key"); return }
+    // MARK: – AI Witness Answer
+
+    func gptWitnessAnswer(
+        witness: String,
+        question: String,
+        context: String,
+        onReply: @escaping (String) -> Void
+    ) {
+        let apiKey = UserDefaults.standard.string(forKey: "openAIKey") ?? ""
+        guard !apiKey.isEmpty else {
+            onReply("No API key")
+            return
+        }
 
         isLoading = true
+        let systemPrompt = "You are \(witness), answering in first person, no AI references."
+        let userPrompt = """
+        Q: "\(question)"
+        Context: \(context)
+        """
 
-        OpenAIRequest.send(
-            model:  caseEntity.aiModel ?? "o4-mini",
-            system: "You are \(witness) answering in first person, no AI references.",
-            user:
-            """
-            Q: "\(question)"
-            Context so far:
-            \(context)
-            """,
-            apiKey: key,
-            temperature: 0.6
+        OpenAIHelper.shared.chatCompletion(
+            model: caseEntity.aiModel ?? AiModel.o4Mini.rawValue,
+            system: systemPrompt,
+            user: userPrompt
         ) { result in
             DispatchQueue.main.async {
-                self.isLoading = false
-                onReply((try? result.get()) ?? "…")
+                isLoading = false
+                switch result {
+                case .success(let text):
+                    onReply(text)
+                case .failure:
+                    onReply("…")
+                }
             }
         }
     }
 
-    /// Opposing‑counsel cross‑exam question (avoids repeats).
-    func gptOpponentCrossExam(witness: String,
-                              context: String,
-                              askedSoFar: [String],
-                              onNewQuestion: @escaping (String?) -> Void)
-    {
-        guard let opp = caseEntity.opposingCounsel else { onNewQuestion(nil); return }
-        guard let key = UserDefaults.standard.string(forKey: "openAIKey"),
-              !key.isEmpty else { onNewQuestion(nil); return }
+    // MARK: – AI Opponent Cross‑Exam
 
-        let role = isUserProsecutorFlag ? "Defense" : "Prosecution"
-        var attempts = 0
+    /// Asks exactly ONE question per call, then stops.
+    func gptOpponentCrossExam(
+        witness: String,
+        context: String,
+        askedSoFar: [String],
+        onNewQuestion: @escaping (String?) -> Void
+    ) {
+        guard let opp = caseEntity.opposingCounsel else {
+            onNewQuestion(nil); return
+        }
+        let apiKey = UserDefaults.standard.string(forKey: "openAIKey") ?? ""
+        guard !apiKey.isEmpty else {
+            onNewQuestion(nil); return
+        }
 
-        func attempt() {
-            attempts += 1
-            if attempts > 3 { onNewQuestion(nil); return }
+        isLoading = true
+        let systemPrompt = """
+        You are \(opp.name ?? "Opposing Counsel"), the \(opp.role ?? "Counsel"). \
+        Provide exactly ONE concise cross‑examination question (no repeats). \
+        Do NOT bundle multiple questions.
+        """
+        let userPrompt = """
+        Already asked: \(askedSoFar.joined(separator: " | "))
+        Witness: \(witness)
+        Context: \(context)
+        """
 
-            OpenAIRequest.send(
-                model:  caseEntity.aiModel ?? "o4-mini",
-                system: "You are \(opp.name ?? role) asking ONE cross‑exam question.",
-                user:
-                """
-                Do NOT repeat: \(askedSoFar.joined(separator:" | "))
-                Witness: \(witness)
-                Context:
-                \(context)
-                """,
-                apiKey: key,
-                temperature: 0.6
-            ) { result in
+        OpenAIHelper.shared.chatCompletion(
+            model: caseEntity.aiModel ?? AiModel.o4Mini.rawValue,
+            system: systemPrompt,
+            user: userPrompt
+        ) { result in
+            DispatchQueue.main.async {
+                isLoading = false
                 switch result {
-                case .failure:
-                    attempt()       // retry on transient error
-                case .success(let q):
-                    let clean = q.trimmingCharacters(in: .whitespacesAndNewlines)
+                case .success(let question):
+                    let clean = question.trimmingCharacters(in: .whitespacesAndNewlines)
                     if askedSoFar.contains(where: { $0.caseInsensitiveCompare(clean) == .orderedSame }) {
-                        attempt()
+                        onNewQuestion(nil)
                     } else {
                         onNewQuestion(clean)
                     }
+                case .failure:
+                    onNewQuestion(nil)
                 }
             }
         }
-        attempt()
     }
 }

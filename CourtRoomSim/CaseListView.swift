@@ -1,29 +1,25 @@
-//
-//  CaseListView.swift
-//  CourtRoomSim
-//
-//  Lists all saved cases and lets the user create a new one.
-//
+// CaseListView.swift
+// CourtRoomSim
 
 import SwiftUI
 import CoreData
 
 struct CaseListView: View {
-
-    // Core Data
+    // MARK: – Core Data
     @Environment(\.managedObjectContext) private var viewContext
     @FetchRequest(
         entity: CaseEntity.entity(),
-        sortDescriptors: [           // sort by crimeType (guaranteed attribute)
+        sortDescriptors: [
             NSSortDescriptor(keyPath: \CaseEntity.crimeType, ascending: true)
         ]
     ) private var cases: FetchedResults<CaseEntity>
 
-    // new‑case creator VM (injected from root)
+    // MARK: – Case creator VM
     @ObservedObject var viewModel: CaseCreatorViewModel
 
-    // UI
+    // MARK: – UI State
     @State private var showRoleSheet = false
+    @State private var showSettings = false
 
     var body: some View {
         NavigationView {
@@ -44,6 +40,15 @@ struct CaseListView: View {
             }
             .navigationTitle("My Cases")
             .toolbar {
+                // Settings button
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Image(systemName: "gear")
+                    }
+                }
+                // New Case button
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         showRoleSheet = true
@@ -52,15 +57,29 @@ struct CaseListView: View {
                     }
                 }
             }
+            // New Case sheet
             .sheet(isPresented: $showRoleSheet) {
                 RoleAndModelSheet(viewModel: viewModel)
+                    .environment(\.managedObjectContext, viewContext)
+            }
+            // Settings sheet
+            .sheet(isPresented: $showSettings) {
+                SettingsView()
+                    .environment(\.managedObjectContext, viewContext)
             }
         }
     }
 
-    // MARK: – delete helper
     private func delete(_ offsets: IndexSet) {
         offsets.map { cases[$0] }.forEach(viewContext.delete)
         try? viewContext.save()
+    }
+}
+
+struct CaseListView_Previews: PreviewProvider {
+    static var previews: some View {
+        let container = PersistenceController.shared.container
+        CaseListView(viewModel: CaseCreatorViewModel())
+            .environment(\.managedObjectContext, container.viewContext)
     }
 }
