@@ -15,11 +15,11 @@ struct SettingsView: View {
     var body: some View {
         NavigationView {
             Form {
-                // MARK: Profile Section
-                Section(header: Text("My Profile")) {
+                Section("My Profile") {
                     TextField("Your Name", text: $profile.playerName)
                         .autocapitalization(.words)
                     TextField("Description", text: $profile.playerDescription)
+
                     if let data = profile.playerImageData,
                        let ui = UIImage(data: data) {
                         Image(uiImage: ui)
@@ -31,6 +31,7 @@ struct SettingsView: View {
                         Text("No profile image")
                             .foregroundColor(.secondary)
                     }
+
                     Button {
                         guard !apiKey.isEmpty else {
                             alertMessage = "Set your API Key first."
@@ -41,8 +42,7 @@ struct SettingsView: View {
                         profile.generateUserImage(apiKey: apiKey) { result in
                             isBusy = false
                             switch result {
-                            case .success:
-                                break
+                            case .success: break
                             case .failure(let err):
                                 alertMessage = "Image generation failed:\n\(err.localizedDescription)"
                                 showAlert = true
@@ -59,8 +59,7 @@ struct SettingsView: View {
                     .disabled(profile.playerName.trimmingCharacters(in: .whitespaces).isEmpty || isBusy)
                 }
 
-                // MARK: OpenAI Key Section
-                Section(header: Text("OpenAI Configuration")) {
+                Section("OpenAI Configuration") {
                     SecureField("OpenAI API Key", text: $apiKey)
                         .textContentType(.password)
                         .autocapitalization(.none)
@@ -87,7 +86,11 @@ struct SettingsView: View {
                 }
             }
             .alert(isPresented: $showAlert) {
-                Alert(title: Text("Settings"), message: Text(alertMessage), dismissButton: .default(Text("OK")))
+                Alert(
+                    title: Text("Settings"),
+                    message: Text(alertMessage),
+                    dismissButton: .default(Text("OK"))
+                )
             }
             .onAppear {
                 apiKey = UserDefaults.standard.string(forKey: "openAIKey") ?? ""

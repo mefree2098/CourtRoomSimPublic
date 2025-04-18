@@ -5,17 +5,26 @@ import Foundation
 import CoreData
 
 struct CaseGenerationManager {
-
-    /// Kick off the AI call to generate a new CaseEntity,
-    /// then ensure it contains all required sections—reprompting only for those that are missing.
+    /// Generate a new CaseEntity in one function‐calling API call.
     func generate(
         into context: NSManagedObjectContext,
         role: UserRole,
         model: AiModel,
         completion: @escaping (Result<CaseEntity, Error>) -> Void
     ) {
-        let system = "You are a legal scenario generator. Return STRICT JSON only."
-        let user = """
+        // 1) Gather API key (UserDefaults → Keychain)
+        let defaultKey = UserDefaults.standard.string(forKey: "openAIKey")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let chainKey = (try? KeychainManager.shared.retrieveAPIKey())?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let apiKey = (defaultKey?.isEmpty == false ? defaultKey! : chainKey) ?? ""
+        guard !apiKey.isEmpty else {
+            return completion(.failure(OpenAIError.missingKey))
+        }
+
+        // 2) System / user prompts
+        let systemPrompt = "You are a legal scenario generator. Return STRICT JSON only."
+        let userPrompt = """
         Create a NEW criminal case for a \(role.rawValue). \
         Include at least one victim, one suspect, two witnesses, one police officer, one counsel, and one judge. \
         You may include murder cases. \
@@ -23,172 +32,135 @@ struct CaseGenerationManager {
         Do NOT wrap the JSON in markdown fences.
         """
 
-        OpenAIHelper.shared.chatCompletion(
-            model: model.rawValue,
-            system: system,
-            user: user
-        ) { result in
-            switch result {
-            case .failure(let err):
-                completion(.failure(err))
+        // 3) Define function schema
+        let functionSchema: [String: Any] = [
+            "name": "create_case",
+            "description": "Generate a full criminal case JSON",
+            "parameters": [
+                "type": "object",
+                "properties": [
+                    "crimeType": ["type": "string"],
+                    "scenarioSummary": ["type": "string"],
+                    "victim": ["$ref": "#/definitions/Character"],
+                    "suspect": ["$ref": "#/definitions/Character"],
+                    "witnesses": [
+                        "type": "array",
+                        "items": ["$ref": "#/definitions/Character"],
+                        "minItems": 2
+                    ],
+                    "police": [
+                        "type": "array",
+                        "items": ["$ref": "#/definitions/Character"],
+                        "minItems": 1
+                    ],
+                    "counsel": ["$ref": "#/definitions/Character"],
+                    "judge": ["$ref": "#/definitions/Character"],
+                    "trueGuiltyParty": ["$ref": "#/definitions/Character"],
+                    "groundTruth": ["type": "boolean"]
+                ],
+                "required": [
+                    "crimeType",
+                    "scenarioSummary",
+                    "victim",
+                    "suspect",
+                    "witnesses",
+                    "police",
+                    "counsel",
+                    "judge"
+                ],
+                "definitions": [
+                    "Character": [
+                        "type": "object",
+                        "properties": [
+                            "name": ["type": "string"],
+                            "role": ["type": "string"],
+                            "background": ["type": "string"]
+                        ],
+                        "required": ["name","role"]
+                    ]
+                ]
+            ]
+        ]
 
-            case .success(let rawJSON):
-                self.fillMissingSections(
-                    rawJSON: rawJSON,
-                    model: model,
-                    systemPrompt: system,
-                    context: context,
-                    role: role,
-                    completion: completion
-                )
-            }
-        }
-    }
+        // 4) Build request payload
+        let messages: [[String: Any]] = [
+            ["role": "system", "content": systemPrompt],
+            ["role": "user",   "content": userPrompt]
+        ]
+        let payload: [String: Any] = [
+            "model": model.rawValue,
+            "messages": messages,
+            "functions": [functionSchema],
+            "function_call": ["name": "create_case"]
+        ]
 
-    // MARK: – Recursively reprompt for missing keys only
-
-    private func fillMissingSections(
-        rawJSON: String,
-        model: AiModel,
-        systemPrompt: String,
-        context: NSManagedObjectContext,
-        role: UserRole,
-        completion: @escaping (Result<CaseEntity, Error>) -> Void
-    ) {
-        // Parse into a mutable dictionary
         guard
-            let data = rawJSON.data(using: .utf8),
-            var dict = try? JSONSerialization.jsonObject(with: data) as? [String:Any]
+            let url = URL(string: "https://api.openai.com/v1/chat/completions"),
+            let body = try? JSONSerialization.data(withJSONObject: payload)
         else {
-            completion(.failure(OpenAIError.malformed(raw: rawJSON)))
-            return
+            return completion(.failure(OpenAIError.malformed(raw: nil)))
         }
 
-        // Detect missing sections
-        var missing: [String] = []
-        if dict["victim"] == nil {
-            missing.append("victim")
-        }
-        if dict["suspect"] == nil {
-            missing.append("suspect")
-        }
-        if let ws = dict["witnesses"] as? [[String:Any]] {
-            if ws.count < 2 { missing.append("witnesses") }
-        } else {
-            missing.append("witnesses")
-        }
-        if let ps = dict["police"] as? [[String:Any]] {
-            if ps.isEmpty { missing.append("police") }
-        } else {
-            missing.append("police")
-        }
-        if dict["counsel"] == nil {
-            missing.append("counsel")
-        }
-        if dict["judge"] == nil {
-            missing.append("judge")
-        }
-        // trueGuiltyParty/groundTruth are optional
+        // 5) Send the HTTP request
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json",        forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
 
-        // If none missing, finalize
-        guard !missing.isEmpty else {
+        URLSession.shared.dataTask(with: request) { data, _, error in
+            // Network error
+            if let err = error {
+                return DispatchQueue.main.async {
+                    completion(.failure(err))
+                }
+            }
+            guard let data = data else {
+                return DispatchQueue.main.async {
+                    completion(.failure(OpenAIError.malformed(raw: nil)))
+                }
+            }
+
             do {
+                // 6) Decode function‐calling response
+                let resp = try JSONDecoder().decode(ChatCompletionResponse.self, from: data)
+                guard
+                    let fn = resp.choices.first?.message.function_call,
+                    let argsData = fn.arguments.data(using: .utf8),
+                    let jsonString = String(data: argsData, encoding: .utf8)
+                else {
+                    let raw = String(data: data, encoding: .utf8)
+                    throw OpenAIError.malformed(raw: raw)
+                }
+
+                // 7) Build Core Data objects
                 let entity = try Self.makeCaseEntity(
-                    fromJSON: rawJSON,
+                    fromJSON: jsonString,
                     role: role,
                     model: model,
                     context: context
                 )
                 Self.generatePortraits(for: entity, in: context)
-                completion(.success(entity))
-            } catch {
-                completion(.failure(error))
-            }
-            return
-        }
 
-        // Reprompt for only the missing keys
-        let keys = missing.joined(separator: ", ")
-        let followUpUser = """
-        Your last response omitted these keys: \(keys). \
-        Please provide **only** those keys in strict JSON (no fences), matching the original structure.
-        """
-
-        OpenAIHelper.shared.chatCompletion(
-            model: model.rawValue,
-            system: systemPrompt,
-            user: followUpUser
-        ) { followResult in
-            switch followResult {
-            case .failure:
-                // On failure, fallback to whatever we have
-                do {
-                    let entity = try Self.makeCaseEntity(
-                        fromJSON: rawJSON,
-                        role: role,
-                        model: model,
-                        context: context
-                    )
-                    Self.generatePortraits(for: entity, in: context)
+                DispatchQueue.main.async {
                     completion(.success(entity))
-                } catch {
+                }
+            } catch {
+                DispatchQueue.main.async {
                     completion(.failure(error))
                 }
-
-            case .success(let followJSON):
-                // Merge follow-up into dict
-                if
-                    let followData = followJSON.data(using: .utf8),
-                    let followDict = try? JSONSerialization
-                                      .jsonObject(with: followData) as? [String:Any]
-                {
-                    for key in missing {
-                        if let val = followDict[key] {
-                            dict[key] = val
-                        }
-                    }
-                }
-                // Serialize merged dict back to JSON
-                if let mergedData = try? JSONSerialization.data(withJSONObject: dict),
-                   let mergedJSON = String(data: mergedData, encoding: .utf8)
-                {
-                    // Recurse to verify no more missing
-                    self.fillMissingSections(
-                        rawJSON: mergedJSON,
-                        model: model,
-                        systemPrompt: systemPrompt,
-                        context: context,
-                        role: role,
-                        completion: completion
-                    )
-                } else {
-                    // If merge fails, fallback
-                    do {
-                        let entity = try Self.makeCaseEntity(
-                            fromJSON: rawJSON,
-                            role: role,
-                            model: model,
-                            context: context
-                        )
-                        Self.generatePortraits(for: entity, in: context)
-                        completion(.success(entity))
-                    } catch {
-                        completion(.failure(error))
-                    }
-                }
             }
-        }
+        }.resume()
     }
 
-    // MARK: – Build the Core Data entity
+    // MARK: – JSON → Core Data mapping
 
     private static func makeCaseEntity(
         fromJSON json: String,
         role: UserRole,
         model: AiModel,
         context ctx: NSManagedObjectContext
-    ) throws -> CaseEntity
-    {
+    ) throws -> CaseEntity {
         guard
             let data = json.data(using: .utf8),
             let dict = try JSONSerialization.jsonObject(with: data) as? [String:Any]
@@ -225,31 +197,38 @@ struct CaseGenerationManager {
             return char
         }
 
-        c.victim  = build(dict["victim"],  defaultRole: "Victim")
+        c.victim = build(dict["victim"],  defaultRole: "Victim")
         c.suspect = build(dict["suspect"], defaultRole: "Suspect")
+
         (dict["witnesses"] as? [[String:Any]])?
             .compactMap { build($0, defaultRole: "Witness") }
             .forEach(c.addToWitnesses)
+
         (dict["police"] as? [[String:Any]])?
             .compactMap { build($0, defaultRole: "Police") }
             .forEach(c.addToPolice)
 
-        if let rawC = dict["counsel"] as? [String:Any],
-           let counselChar = build(rawC, defaultRole: "Counsel")
+        if
+            let rawC = dict["counsel"] as? [String:Any],
+            let counselChar = build(rawC, defaultRole: "Counsel")
         {
+            // Opposing counsel is opposite of user role
             counselChar.role = (role == .prosecutor)
-                ? "Defense Counsel" : "Prosecutor"
+                ? "Defense Counsel"
+                : "Prosecutor"
             c.opposingCounsel = counselChar
         }
 
-        if let rawJ = dict["judge"] as? [String:Any],
-           let judgeChar = build(rawJ, defaultRole: "Judge")
+        if
+            let rawJ = dict["judge"] as? [String:Any],
+            let judgeChar = build(rawJ, defaultRole: "Judge")
         {
             c.judge = judgeChar
         }
 
-        if let rawT = dict["trueGuiltyParty"] as? [String:Any],
-           let tgpChar = build(rawT, defaultRole: "TrueGuilty")
+        if
+            let rawT = dict["trueGuiltyParty"] as? [String:Any],
+            let tgpChar = build(rawT, defaultRole: "TrueGuilty")
         {
             c.trueGuiltyParty = tgpChar
             c.groundTruth     = (dict["groundTruth"] as? Bool) ?? false
@@ -259,32 +238,32 @@ struct CaseGenerationManager {
         return c
     }
 
-    // MARK: – Portrait Generation (UserDefaults → Keychain fallback)
+    // MARK: – Portrait generation
 
     private static func generatePortraits(
         for caseEntity: CaseEntity,
         in ctx: NSManagedObjectContext
     ) {
-        // gather all characters
+        // Collect all characters
         var chars: [CourtCharacter] = []
         [caseEntity.victim, caseEntity.suspect,
          caseEntity.opposingCounsel, caseEntity.judge]
-            .compactMap { $0 }.forEach { chars.append($0) }
+            .compactMap { $0 }
+            .forEach { chars.append($0) }
         chars += (caseEntity.witnesses as? Set<CourtCharacter>) ?? []
         chars += (caseEntity.police    as? Set<CourtCharacter>) ?? []
 
-        // 1) Try UserDefaults
+        // API key fallback
         let defaultKey = UserDefaults.standard.string(forKey: "openAIKey")?
-                          .trimmingCharacters(in: .whitespaces)
-        // 2) Fallback to Keychain
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let chainKey = (try? KeychainManager.shared.retrieveAPIKey())?
-                          .trimmingCharacters(in: .whitespaces)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let apiKey = (defaultKey?.isEmpty == false ? defaultKey : chainKey) ?? ""
-
         guard !apiKey.isEmpty else { return }
 
         for char in chars {
             let prompt = "A pixel‑art portrait of \(char.name!), a \(char.role!) in a courtroom."
+
             func attempt() {
                 CharacterImageManager.shared.generatePixelArtImage(
                     prompt: prompt,
@@ -298,17 +277,7 @@ struct CaseGenerationManager {
                         }
                     case .failure:
                         DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
-                            CharacterImageManager.shared.generatePixelArtImage(
-                                prompt: prompt,
-                                apiKey: apiKey
-                            ) { retry in
-                                if case .success(let data2) = retry {
-                                    DispatchQueue.main.async {
-                                        char.imageData = data2
-                                        try? ctx.save()
-                                    }
-                                }
-                            }
+                            attempt()
                         }
                     }
                 }
@@ -316,4 +285,22 @@ struct CaseGenerationManager {
             attempt()
         }
     }
+}
+
+// MARK: – Chat Completions function‐calling support
+
+fileprivate struct ChatCompletionResponse: Codable {
+    let choices: [ChatChoice]
+}
+fileprivate struct ChatChoice: Codable {
+    let message: ChatMessage
+}
+fileprivate struct ChatMessage: Codable {
+    let role: String
+    let content: String?
+    let function_call: FunctionCall?
+}
+fileprivate struct FunctionCall: Codable {
+    let name: String
+    let arguments: String
 }

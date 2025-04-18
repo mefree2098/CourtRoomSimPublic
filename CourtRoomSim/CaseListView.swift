@@ -6,13 +6,13 @@ import CoreData
 
 struct CasesListView: View {
     @Environment(\.managedObjectContext) private var viewContext
-
     @FetchRequest(
         entity: CaseEntity.entity(),
         sortDescriptors: [NSSortDescriptor(key: "id", ascending: false)]
     ) private var allCases: FetchedResults<CaseEntity>
 
     @State private var showNewCase = false
+    @State private var showSettings = false
 
     var body: some View {
         List {
@@ -34,29 +34,37 @@ struct CasesListView: View {
         .listStyle(SidebarListStyle())
         .navigationTitle("Cases")
         .toolbar {
-            // Dashboard button
+            // Dashboard (always in detail pane)
             ToolbarItem(placement: .navigationBarLeading) {
                 NavigationLink("Dashboard") {
                     DashboardView()
                 }
             }
-            // Settings gear icon
+            // Settings as modal sheet
             ToolbarItem(placement: .navigationBarTrailing) {
-                NavigationLink(destination: SettingsView()) {
+                Button {
+                    showSettings = true
+                } label: {
                     Image(systemName: "gear")
                         .imageScale(.large)
                         .accessibility(label: Text("Settings"))
                 }
             }
-            // New Case button as modal
+            // New Case as modal sheet
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: { showNewCase = true }) {
+                Button {
+                    showNewCase = true
+                } label: {
                     Label("New Case", systemImage: "plus")
                 }
             }
         }
         .sheet(isPresented: $showNewCase) {
             NewCaseView()
+                .environment(\.managedObjectContext, viewContext)
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
                 .environment(\.managedObjectContext, viewContext)
         }
     }
@@ -66,7 +74,6 @@ struct CasesListView: View {
     }
 }
 
-// Preview
 struct CasesListView_Previews: PreviewProvider {
     static var previews: some View {
         NavigationView {
