@@ -12,7 +12,7 @@ struct AiCounselView: View {
     let gptWitnessAnswer: (String, String, String, @escaping (String) -> Void) -> Void
     let onFinishCase: () -> Void
 
-    // Local state
+    // State
     @State private var currentIndex = 0
     @State private var currentWitness: CourtCharacter?
     @State private var contextSummary = ""
@@ -22,6 +22,9 @@ struct AiCounselView: View {
     @State private var showObj = false
     @State private var objReason = ""
     @State private var isLoading = false
+
+    // Maximum questions per witness
+    private let questionLimit = 5
 
     var body: some View {
         VStack(spacing: 16) {
@@ -60,8 +63,16 @@ struct AiCounselView: View {
     }
 
     private func askQuestion() {
+        // Enforce limit
+        if askedQuestions.count >= questionLimit {
+            recordTranscript(roleName, "I rest my case.")
+            onFinishCase()
+            return
+        }
+
         guard let w = currentWitness else { return }
         isLoading = true
+
         let systemPrompt = """
         You are \(roleName) under the judge’s supervision. \
         Ask exactly ONE concise question of \(w.name ?? "the witness") based on context. \
@@ -71,17 +82,19 @@ struct AiCounselView: View {
         Context: \(contextSummary)
         Already asked: \(askedQuestions.joined(separator: " | "))
         """
+
         OpenAIHelper.shared.chatCompletion(
             model: caseEntity.aiModel ?? AiModel.o4Mini.rawValue,
             system: systemPrompt,
             user: userPrompt
         ) { result in
             DispatchQueue.main.async {
-                isLoading = false
+                self.isLoading = false
                 switch result {
                 case .success(let q):
                     let clean = q.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if askedQuestions.contains(where: { $0.caseInsensitiveCompare(clean) == .orderedSame }) {
+                    // If GPT returns nothing new, rest
+                    if clean.isEmpty || askedQuestions.contains(where: { $0.caseInsensitiveCompare(clean) == .orderedSame }) {
                         recordTranscript("Judge", "No further questions, your honor.")
                         onFinishCase()
                     } else {
@@ -102,10 +115,10 @@ struct AiCounselView: View {
         awaitingUser = false
         askedQuestions.append(pendingQuestion)
 
+        // Get witness answer, then delay before next ask
         gptWitnessAnswer(w.name ?? "", pendingQuestion, contextSummary) { ans in
             recordTranscript(w.name ?? "", ans)
             contextSummary += "Q: \(pendingQuestion)\nA: \(ans)\n"
-            // Delay so user sees answer before next popup
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                 askQuestion()
             }
@@ -117,7 +130,7 @@ struct AiCounselView: View {
         recordTranscript("Judge", "Objection (\(objReason)). Judge: \(sustained ? "Sustained" : "Overruled")")
         objReason = ""
         if sustained {
-            // Delay before next question popup
+            // Delay before next question
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                 askQuestion()
             }

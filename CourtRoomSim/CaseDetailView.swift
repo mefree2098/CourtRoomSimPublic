@@ -7,6 +7,8 @@ import CoreData
 struct CaseDetailView: View {
     @ObservedObject var caseEntity: CaseEntity
     @Environment(\.managedObjectContext) private var viewContext
+    @Environment(\.dismiss) private var dismiss
+
     @State private var showTrialSheet = false
 
     private var isMurder: Bool {
@@ -131,12 +133,27 @@ struct CaseDetailView: View {
             // Proceed to Trial
             if caseEntity.phase == CasePhase.preTrial.rawValue {
                 Section {
-                    Button("Proceed to Trial") { showTrialSheet = true }
-                        .frame(maxWidth: .infinity, alignment: .center)
+                    Button("Proceed to Trial") {
+                        showTrialSheet = true
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
                 }
             }
         }
         .navigationTitle("Case Roster")
+        .toolbar {
+            // Close button if presented as a sheet
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Close") { dismiss() }
+            }
+            // Notebook button
+            ToolbarItem(placement: .primaryAction) {
+                NavigationLink(destination: NotebookView(caseEntity: caseEntity)) {
+                    Image(systemName: "book")
+                        .accessibility(label: Text("Notebook"))
+                }
+            }
+        }
         .sheet(isPresented: $showTrialSheet) {
             TrialFlowView(caseEntity: caseEntity)
                 .environment(\.managedObjectContext, viewContext)

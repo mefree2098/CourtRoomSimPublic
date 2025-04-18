@@ -1,14 +1,12 @@
-//
-//  CasePhase.swift
-//  CourtRoomSim
-//
-//  Created by LeadDev on 2025-04-13.
-//
+// CasePhase.swift
+// CourtRoomSim
 
 import Foundation
 
+/// Tracks the app’s high‑level case phases.
 enum CasePhase: String {
-    case preTrial = "PreTrial"
-    case trial = "Trial"
-    case postTrial = "PostTrial"
+    case preTrial
+    case trial
+    case juryDeliberation
+    case completed
 }

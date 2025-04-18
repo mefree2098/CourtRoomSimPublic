@@ -13,7 +13,7 @@
         <relationship name="conversations" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Conversation" inverseName="caseEntity" inverseEntity="Conversation"/>
         <relationship name="judge" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CourtCharacter" inverseName="judgeCase" inverseEntity="CourtCharacter"/>
         <relationship name="jury" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CourtCharacter" inverseName="juryCase" inverseEntity="CourtCharacter"/>
-        <relationship name="notes" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Note" inverseName="caseEntity" inverseEntity="Note"/>
+        <relationship name="notes" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="NotebookEntry" inverseName="caseEntity" inverseEntity="NotebookEntry"/>
         <relationship name="opposingCounsel" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CourtCharacter"/>
         <relationship name="police" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CourtCharacter" inverseName="policeCases" inverseEntity="CourtCharacter"/>
         <relationship name="suspect" optional="YES" maxCount="1" deletionRule="Cascade" destinationEntity="CourtCharacter" inverseName="suspectCase" inverseEntity="CourtCharacter"/>
@@ -73,6 +73,12 @@
         <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
         <attribute name="text" optional="YES" attributeType="String"/>
         <attribute name="timestamp" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <relationship name="caseEntity" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CaseEntity"/>
+    </entity>
+    <entity name="NotebookEntry" representedClassName="NotebookEntry" syncable="YES" codeGenerationType="class">
+        <attribute name="content" attributeType="String"/>
+        <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="timestamp" attributeType="Date" usesScalarValueType="NO"/>
         <relationship name="caseEntity" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CaseEntity" inverseName="notes" inverseEntity="CaseEntity"/>
     </entity>
     <entity name="PlayerProfile" representedClassName="PlayerProfile" syncable="YES" codeGenerationType="class">

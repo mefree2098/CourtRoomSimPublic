@@ -1,205 +1,228 @@
-//
-//  TrialFlowView.swift
-//  CourtRoomSim
-//
-//  COMPLETE  – 2025‑05‑01
-//
+// TrialFlowView.swift
+// CourtRoomSim
 
 import SwiftUI
 import CoreData
 
-// MARK: – ENUMS & CONSTANTS
+/// High‑level trial stages.
 enum TrialStage: String {
-    case openingStatements, prosecutionCase, defenseCase,
-         closingArguments, juryDeliberation, verdict
+    case openingStatements
+    case prosecutionCase
+    case defenseCase
+    case closingArguments
+    case juryDeliberation
+    case verdict
 }
 
-private let jurorFallbackPersonalities = [
-    "Analytical","Empathetic","Skeptical","Impulsive",
-    "Detail‑oriented","Pragmatic","Cautious","Idealistic",
-    "Gruff‑but‑fair","Stubborn","Methodical","Warm‑hearted"
+/// Fallback personalities for jurors.
+let jurorFallbackPersonalities = [
+    "Analytical", "Empathetic", "Skeptical", "Impulsive",
+    "Detail‑oriented", "Pragmatic", "Cautious", "Idealistic",
+    "Gruff‑but‑fair", "Stubborn", "Methodical", "Warm‑hearted"
 ]
 
-// MARK: – ROOT VIEW
 struct TrialFlowView: View {
-
-    // Core‑Data
+    // MARK: – Dependencies
     @ObservedObject var caseEntity: CaseEntity
     @Environment(\.managedObjectContext) var viewContext
 
-    // Transcript
     @FetchRequest private var trialEvents: FetchedResults<TrialEvent>
 
-    // UI state (internal so helper extension can read/write)
-    @State var currentStage:  TrialStage = .openingStatements
-    @State var currentSpeaker = "Prosecution"
-    @State var isLoading      = false
-    @State var showRoster     = false
-    @State var errorMessage:  String?
+    // MARK: – UI State (made internal so Helpers file can access)
+    @State var currentStage: TrialStage = .openingStatements
+    @State var currentSpeaker: String = "Prosecution"
+    @State var isLoading: Bool = false
+    @State var showRoster: Bool = false
+    @State var errorMessage: String?
 
-    // ------------------------------------------------------------------
     init(caseEntity: CaseEntity) {
         self.caseEntity = caseEntity
+        // Fetch all TrialEvent for this case
         let req = NSFetchRequest<TrialEvent>(entityName: "TrialEvent")
-        req.predicate       = NSPredicate(format: "caseEntity == %@", caseEntity)
+        req.predicate = NSPredicate(format: "caseEntity == %@", caseEntity)
         req.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: true)]
         _trialEvents = FetchRequest(fetchRequest: req)
     }
 
-    // MARK: – BODY ------------------------------------------------------
     var body: some View {
         VStack(spacing: 0) {
-
-            // top bar
+            // Top toolbar
             HStack {
                 Spacer()
-                Button("Case Roster") { showRoster = true }
+                Button("Case Roster") { showRoster = true }
                     .padding(.trailing, 16)
             }
             .padding(.top, 4)
 
             Divider()
 
+            // Transcript scroll
             TrialTranscriptView(events: trialEvents)
 
             if let err = errorMessage {
-                Text(err).foregroundColor(.red).padding(.vertical, 2)
+                Text(err)
+                    .foregroundColor(.red)
+                    .padding(.vertical, 2)
             }
-            if isLoading { ProgressView() }
+            if isLoading {
+                ProgressView().padding(.vertical, 2)
+            }
 
             Divider()
 
-            // stage switcher
+            // Stage dispatch
             switch currentStage {
-
-            // ───────── OPENING
             case .openingStatements:
                 OpeningStatementsView(
-                    caseEntity:     caseEntity,
+                    caseEntity: caseEntity,
                     currentSpeaker: $currentSpeaker,
-                    record:         recordEvent,          // ← fixed label
-                    autoOpponent:   gptOpponentStatement,
-                    moveNext:       advanceStage)
+                    record: recordEvent,
+                    autoOpponent: gptOpponentStatement,
+                    moveNext: advanceStage
+                )
 
-            // ───────── PROSECUTION CASE
             case .prosecutionCase:
                 if isUserProsecutor {
                     DirectExaminationView(
-                        roleName:     "Prosecution",
-                        caseEntity:   caseEntity,
-                        record:       recordEvent,
-                        gptAnswer:    gptWitnessAnswer,
-                        gptCross:     gptOpponentCrossExam,
-                        isLoading:    $isLoading,
-                        lockWitness:  true,
-                        finishCase:   advanceStage)
+                        roleName: "Prosecution",
+                        caseEntity: caseEntity,
+                        record: recordEvent,
+                        gptAnswer: gptWitnessAnswer,
+                        gptCross: gptOpponentCrossExam,
+                        isLoading: $isLoading,
+                        lockWitness: true,
+                        finishCase: advanceStage
+                    )
                 } else {
                     AiCounselView(
-                        roleName:           "Prosecution (AI)",
-                        caseEntity:         caseEntity,
-                        recordTranscript:   recordEvent,
-                        gptWitnessAnswer:   gptWitnessAnswer,
-                        onFinishCase:       advanceStage)
+                        roleName: "Prosecution (AI)",
+                        caseEntity: caseEntity,
+                        recordTranscript: recordEvent,
+                        gptWitnessAnswer: gptWitnessAnswer,
+                        onFinishCase: advanceStage
+                    )
                 }
 
-            // ───────── DEFENSE CASE
             case .defenseCase:
                 if !isUserProsecutor {
                     DirectExaminationView(
-                        roleName:     "Defense",
-                        caseEntity:   caseEntity,
-                        record:       recordEvent,
-                        gptAnswer:    gptWitnessAnswer,
-                        gptCross:     gptOpponentCrossExam,
-                        isLoading:    $isLoading,
-                        lockWitness:  true,
-                        finishCase:   advanceStage)
+                        roleName: "Defense",
+                        caseEntity: caseEntity,
+                        record: recordEvent,
+                        gptAnswer: gptWitnessAnswer,
+                        gptCross: gptOpponentCrossExam,
+                        isLoading: $isLoading,
+                        lockWitness: true,
+                        finishCase: advanceStage
+                    )
                 } else {
                     AiCounselView(
-                        roleName:           "Defense (AI)",
-                        caseEntity:         caseEntity,
-                        recordTranscript:   recordEvent,
-                        gptWitnessAnswer:   gptWitnessAnswer,
-                        onFinishCase:       advanceStage)
+                        roleName: "Defense (AI)",
+                        caseEntity: caseEntity,
+                        recordTranscript: recordEvent,
+                        gptWitnessAnswer: gptWitnessAnswer,
+                        onFinishCase: advanceStage
+                    )
                 }
 
-            // ───────── CLOSING
             case .closingArguments:
                 ClosingArgumentsView(
-                    caseEntity:     caseEntity,
+                    caseEntity: caseEntity,
                     currentSpeaker: $currentSpeaker,
-                    record:         recordEvent,
-                    autoOpponent:   gptOpponentStatement,
-                    moveNext:       advanceStage)
+                    record: recordEvent,
+                    autoOpponent: gptOpponentStatement,
+                    moveNext: advanceStage
+                )
 
-            // ───────── JURY
             case .juryDeliberation:
                 JuryDeliberationView(
-                    caseEntity:       caseEntity,
+                    caseEntity: caseEntity,
                     recordTranscript: recordEvent,
-                    finalizeVerdict:  setVerdict)
+                    finalizeVerdict: setVerdict
+                )
 
-            // ───────── VERDICT
             case .verdict:
-                Text("Verdict: \(caseEntity.verdict ?? "Undecided")")
-                    .font(.title)
-                    .padding()
+                VStack {
+                    Text("Verdict:")
+                        .font(.headline)
+                    Text(caseEntity.verdict ?? "Undecided")
+                        .font(.title)
+                        .padding(.top, 4)
+                }
+                .padding()
             }
         }
         .navigationTitle("Trial")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $showRoster) { CaseRosterSheet(caseEntity: caseEntity) }
+        .sheet(isPresented: $showRoster) {
+            CaseRosterSheet(caseEntity: caseEntity)
+                .environment(\.managedObjectContext, viewContext)
+        }
         .onAppear { ensureJudgeAndJury() }
     }
 
-    // MARK: – convenience ----------------------------------------------
+    // MARK: – Helpers (made internal so Helpers file can call them)
+
+    /// True if the user is filling the prosecutor role.
     var isUserProsecutor: Bool {
-        (caseEntity.userRole ?? "").lowercased().contains("prosecutor")
+        (caseEntity.userRole ?? "")
+            .lowercased().contains("prosecutor")
     }
 
+    /// Persist a trial event.
     func recordEvent(_ speaker: String, _ msg: String) {
         let ev = TrialEvent(context: viewContext)
-        ev.id = UUID(); ev.speaker = speaker; ev.message = msg
-        ev.timestamp = Date(); ev.caseEntity = caseEntity
+        ev.id = UUID()
+        ev.speaker = speaker
+        ev.message = msg
+        ev.timestamp = Date()
+        ev.caseEntity = caseEntity
         try? viewContext.save()
     }
 
+    /// Advance to the next trial stage.
     func advanceStage() {
-        currentStage = switch currentStage {
-        case .openingStatements:  .prosecutionCase
-        case .prosecutionCase:    .defenseCase
-        case .defenseCase:        .closingArguments
-        case .closingArguments:   .juryDeliberation
-        case .juryDeliberation:   .verdict
-        case .verdict:            .verdict
-        }
+        currentStage = {
+            switch currentStage {
+            case .openingStatements:   return .prosecutionCase
+            case .prosecutionCase:     return .defenseCase
+            case .defenseCase:         return .closingArguments
+            case .closingArguments:    return .juryDeliberation
+            case .juryDeliberation:    return .verdict
+            case .verdict:             return .verdict
+            }
+        }()
     }
 
-    func setVerdict(_ v: String) {
-        caseEntity.verdict = v
+    /// Capture and save the final verdict.
+    func setVerdict(_ verdict: String) {
+        caseEntity.verdict = verdict
         try? viewContext.save()
         currentStage = .verdict
     }
 
-    // ensure judge + jury exist
+    /// Ensure judge and 12 jurors exist before trial.
     func ensureJudgeAndJury() {
         if caseEntity.judge == nil {
             let judge = CourtCharacter(context: viewContext)
-            judge.id   = UUID()
-            judge.name = "Judge " + ["Summerton","Hawkins","Delgado","Price"].randomElement()!
-            judge.personality = ["Fair‑minded","Strict","Patient"].randomElement()!
-            judge.background  = "Seasoned jurist respected for balanced rulings."
-            caseEntity.judge  = judge
+            judge.id = UUID()
+            judge.name = "Judge " + ["Summerton","Hawkins","Delgado","Price"]
+                .randomElement()!
+            judge.personality = ["Fair‑minded","Strict","Patient"]
+                .randomElement()!
+            judge.background = "Seasoned jurist respected for balanced rulings."
+            caseEntity.judge = judge
         }
 
         let existing = caseEntity.jury as? Set<CourtCharacter> ?? []
         if existing.count < 12 {
-            (0..<(12 - existing.count)).forEach { _ in
-                let juror        = CourtCharacter(context: viewContext)
-                juror.id         = UUID()
-                juror.name       = "Juror #\(Int.random(in: 100...999))"
-                juror.personality = jurorFallbackPersonalities.randomElement()!
-                juror.background  = "Citizen with unique life experience."
+            for i in existing.count..<12 {
+                let juror = CourtCharacter(context: viewContext)
+                juror.id = UUID()
+                juror.name = "Juror #\(i+1)"
+                juror.personality = jurorFallbackPersonalities
+                    .randomElement()!
+                juror.background = "Citizen with unique life experience."
                 caseEntity.addToJury(juror)
             }
         }
