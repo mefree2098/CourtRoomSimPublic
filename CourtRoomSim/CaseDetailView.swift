@@ -8,8 +8,8 @@ struct CaseDetailView: View {
     @ObservedObject var caseEntity: CaseEntity
     @Environment(\.managedObjectContext) private var viewContext
     @Environment(\.dismiss) private var dismiss
-
     @State private var showTrialSheet = false
+    @State private var showNotebook = false
 
     private var isMurder: Bool {
         (caseEntity.crimeType ?? "").lowercased().contains("murder")
@@ -142,20 +142,25 @@ struct CaseDetailView: View {
         }
         .navigationTitle("Case Roster")
         .toolbar {
-            // Close button if presented as a sheet
+            // Close button if presented as sheet
             ToolbarItem(placement: .cancellationAction) {
                 Button("Close") { dismiss() }
             }
             // Notebook button
             ToolbarItem(placement: .primaryAction) {
-                NavigationLink(destination: NotebookView(caseEntity: caseEntity)) {
+                Button(action: { showNotebook = true }) {
                     Image(systemName: "book")
+                        .imageScale(.large)
                         .accessibility(label: Text("Notebook"))
                 }
             }
         }
         .sheet(isPresented: $showTrialSheet) {
             TrialFlowView(caseEntity: caseEntity)
+                .environment(\.managedObjectContext, viewContext)
+        }
+        .sheet(isPresented: $showNotebook) {
+            NotebookView(caseEntity: caseEntity)
                 .environment(\.managedObjectContext, viewContext)
         }
     }
