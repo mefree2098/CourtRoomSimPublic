@@ -4,7 +4,6 @@
 import SwiftUI
 import CoreData
 
-/// High‑level trial stages.
 enum TrialStage: String {
     case openingStatements
     case prosecutionCase
@@ -14,7 +13,6 @@ enum TrialStage: String {
     case verdict
 }
 
-/// Fallback personalities for jurors.
 let jurorFallbackPersonalities = [
     "Analytical", "Empathetic", "Skeptical", "Impulsive",
     "Detail‑oriented", "Pragmatic", "Cautious", "Idealistic",
@@ -22,13 +20,12 @@ let jurorFallbackPersonalities = [
 ]
 
 struct TrialFlowView: View {
-    // MARK: – Dependencies
     @ObservedObject var caseEntity: CaseEntity
     @Environment(\.managedObjectContext) var viewContext
+    @Environment(\.dismiss) var dismiss
 
     @FetchRequest private var trialEvents: FetchedResults<TrialEvent>
 
-    // MARK: – UI State (made internal so Helpers file can access)
     @State var currentStage: TrialStage = .openingStatements
     @State var currentSpeaker: String = "Prosecution"
     @State var isLoading: Bool = false
@@ -37,7 +34,6 @@ struct TrialFlowView: View {
 
     init(caseEntity: CaseEntity) {
         self.caseEntity = caseEntity
-        // Fetch all TrialEvent for this case
         let req = NSFetchRequest<TrialEvent>(entityName: "TrialEvent")
         req.predicate = NSPredicate(format: "caseEntity == %@", caseEntity)
         req.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: true)]
@@ -46,7 +42,6 @@ struct TrialFlowView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Top toolbar
             HStack {
                 Spacer()
                 Button("Case Roster") { showRoster = true }
@@ -56,7 +51,6 @@ struct TrialFlowView: View {
 
             Divider()
 
-            // Transcript scroll
             TrialTranscriptView(events: trialEvents)
 
             if let err = errorMessage {
@@ -70,7 +64,6 @@ struct TrialFlowView: View {
 
             Divider()
 
-            // Stage dispatch
             switch currentStage {
             case .openingStatements:
                 OpeningStatementsView(
@@ -142,14 +135,15 @@ struct TrialFlowView: View {
                 )
 
             case .verdict:
-                VStack {
-                    Text("Verdict:")
-                        .font(.headline)
-                    Text(caseEntity.verdict ?? "Undecided")
-                        .font(.title)
-                        .padding(.top, 4)
+                VStack(spacing: 16) {
+                    Text("Verdict: \(caseEntity.verdict ?? "Undecided")")
+                        .font(.largeTitle)
+                        .bold()
+                    Button("Close Case") {
+                        dismiss()
+                    }
+                    .padding()
                 }
-                .padding()
             }
         }
         .navigationTitle("Trial")
@@ -161,15 +155,10 @@ struct TrialFlowView: View {
         .onAppear { ensureJudgeAndJury() }
     }
 
-    // MARK: – Helpers (made internal so Helpers file can call them)
-
-    /// True if the user is filling the prosecutor role.
     var isUserProsecutor: Bool {
-        (caseEntity.userRole ?? "")
-            .lowercased().contains("prosecutor")
+        (caseEntity.userRole ?? "").lowercased().contains("prosecutor")
     }
 
-    /// Persist a trial event.
     func recordEvent(_ speaker: String, _ msg: String) {
         let ev = TrialEvent(context: viewContext)
         ev.id = UUID()
@@ -180,7 +169,6 @@ struct TrialFlowView: View {
         try? viewContext.save()
     }
 
-    /// Advance to the next trial stage.
     func advanceStage() {
         currentStage = {
             switch currentStage {
@@ -194,14 +182,12 @@ struct TrialFlowView: View {
         }()
     }
 
-    /// Capture and save the final verdict.
     func setVerdict(_ verdict: String) {
         caseEntity.verdict = verdict
         try? viewContext.save()
         currentStage = .verdict
     }
 
-    /// Ensure judge and 12 jurors exist before trial.
     func ensureJudgeAndJury() {
         if caseEntity.judge == nil {
             let judge = CourtCharacter(context: viewContext)

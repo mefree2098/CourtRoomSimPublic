@@ -1,85 +1,78 @@
-// CaseListView.swift
+// CasesListView.swift
 // CourtRoomSim
 
 import SwiftUI
 import CoreData
 
-struct CaseListView: View {
-    // MARK: – Core Data
+struct CasesListView: View {
     @Environment(\.managedObjectContext) private var viewContext
+
     @FetchRequest(
         entity: CaseEntity.entity(),
-        sortDescriptors: [
-            NSSortDescriptor(keyPath: \CaseEntity.crimeType, ascending: true)
-        ]
-    ) private var cases: FetchedResults<CaseEntity>
+        sortDescriptors: [NSSortDescriptor(key: "id", ascending: false)]
+    ) private var allCases: FetchedResults<CaseEntity>
 
-    // MARK: – Case creator VM
-    @ObservedObject var viewModel: CaseCreatorViewModel
-
-    // MARK: – UI State
-    @State private var showRoleSheet = false
-    @State private var showSettings = false
+    @State private var showNewCase = false
 
     var body: some View {
-        NavigationView {
-            List {
-                ForEach(cases) { c in
+        List {
+            Section("Active Cases") {
+                ForEach(activeCases) { c in
                     NavigationLink(destination: CaseDetailView(caseEntity: c)) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(c.crimeType ?? "Unknown Crime")
+                        VStack(alignment: .leading) {
+                            Text(c.crimeType ?? "Untitled Case")
                                 .font(.headline)
-                            Text(c.details ?? "")
+                            Text("Phase: \(c.phase ?? "")")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
-                                .lineLimit(2)
                         }
-                    }
-                }
-                .onDelete(perform: delete)
-            }
-            .navigationTitle("My Cases")
-            .toolbar {
-                // Settings button
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button {
-                        showSettings = true
-                    } label: {
-                        Image(systemName: "gear")
-                    }
-                }
-                // New Case button
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        showRoleSheet = true
-                    } label: {
-                        Label("New Case", systemImage: "plus")
+                        .padding(.vertical, 4)
                     }
                 }
             }
-            // New Case sheet
-            .sheet(isPresented: $showRoleSheet) {
-                RoleAndModelSheet(viewModel: viewModel)
-                    .environment(\.managedObjectContext, viewContext)
+        }
+        .listStyle(SidebarListStyle())
+        .navigationTitle("Cases")
+        .toolbar {
+            // Dashboard button
+            ToolbarItem(placement: .navigationBarLeading) {
+                NavigationLink("Dashboard") {
+                    DashboardView()
+                }
             }
-            // Settings sheet
-            .sheet(isPresented: $showSettings) {
-                SettingsView()
-                    .environment(\.managedObjectContext, viewContext)
+            // Settings gear icon
+            ToolbarItem(placement: .navigationBarTrailing) {
+                NavigationLink(destination: SettingsView()) {
+                    Image(systemName: "gear")
+                        .imageScale(.large)
+                        .accessibility(label: Text("Settings"))
+                }
             }
+            // New Case button as modal
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: { showNewCase = true }) {
+                    Label("New Case", systemImage: "plus")
+                }
+            }
+        }
+        .sheet(isPresented: $showNewCase) {
+            NewCaseView()
+                .environment(\.managedObjectContext, viewContext)
         }
     }
 
-    private func delete(_ offsets: IndexSet) {
-        offsets.map { cases[$0] }.forEach(viewContext.delete)
-        try? viewContext.save()
+    private var activeCases: [CaseEntity] {
+        allCases.filter { $0.phase != CasePhase.completed.rawValue }
     }
 }
 
-struct CaseListView_Previews: PreviewProvider {
+// Preview
+struct CasesListView_Previews: PreviewProvider {
     static var previews: some View {
-        let container = PersistenceController.shared.container
-        CaseListView(viewModel: CaseCreatorViewModel())
-            .environment(\.managedObjectContext, container.viewContext)
+        NavigationView {
+            CasesListView()
+                .environment(\.managedObjectContext,
+                              PersistenceController.shared.container.viewContext)
+        }
     }
 }
