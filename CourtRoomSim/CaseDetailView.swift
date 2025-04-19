@@ -8,8 +8,10 @@ struct CaseDetailView: View {
     @ObservedObject var caseEntity: CaseEntity
     @Environment(\.managedObjectContext) private var viewContext
     @Environment(\.dismiss) private var dismiss
+
     @State private var showTrialSheet = false
     @State private var showNotebook = false
+    @State private var selectedChatCharacter: CourtCharacter? = nil
 
     private var isMurder: Bool {
         (caseEntity.crimeType ?? "").lowercased().contains("murder")
@@ -36,15 +38,15 @@ struct CaseDetailView: View {
                                 .foregroundColor(.secondary)
                         }
                     } else {
-                        NavigationLink(
-                            destination: CharacterChatView(caseEntity: caseEntity, character: v)
-                        ) {
-                            HStack {
-                                Text("Victim")
-                                Spacer()
-                                Text(v.name ?? "")
-                                    .foregroundColor(.secondary)
-                            }
+                        HStack {
+                            Text("Victim")
+                            Spacer()
+                            Text(v.name ?? "")
+                                .foregroundColor(.secondary)
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            selectedChatCharacter = v
                         }
                     }
                 }
@@ -53,15 +55,15 @@ struct CaseDetailView: View {
             // Suspect
             Section(header: Text("Suspect")) {
                 if let s = caseEntity.suspect {
-                    NavigationLink(
-                        destination: CharacterChatView(caseEntity: caseEntity, character: s)
-                    ) {
-                        HStack {
-                            Text("Suspect")
-                            Spacer()
-                            Text(s.name ?? "")
-                                .foregroundColor(.secondary)
-                        }
+                    HStack {
+                        Text("Suspect")
+                        Spacer()
+                        Text(s.name ?? "")
+                            .foregroundColor(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        selectedChatCharacter = s
                     }
                 }
             }
@@ -69,15 +71,15 @@ struct CaseDetailView: View {
             // Witnesses
             Section(header: Text("Witnesses")) {
                 ForEach(Array((caseEntity.witnesses as? Set<CourtCharacter>) ?? [])) { w in
-                    NavigationLink(
-                        destination: CharacterChatView(caseEntity: caseEntity, character: w)
-                    ) {
-                        HStack {
-                            Text("Witness")
-                            Spacer()
-                            Text(w.name ?? "")
-                                .foregroundColor(.secondary)
-                        }
+                    HStack {
+                        Text("Witness")
+                        Spacer()
+                        Text(w.name ?? "")
+                            .foregroundColor(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        selectedChatCharacter = w
                     }
                 }
             }
@@ -85,15 +87,15 @@ struct CaseDetailView: View {
             // Police
             Section(header: Text("Police")) {
                 ForEach(Array((caseEntity.police as? Set<CourtCharacter>) ?? [])) { p in
-                    NavigationLink(
-                        destination: CharacterChatView(caseEntity: caseEntity, character: p)
-                    ) {
-                        HStack {
-                            Text("Police")
-                            Spacer()
-                            Text(p.name ?? "")
-                                .foregroundColor(.secondary)
-                        }
+                    HStack {
+                        Text("Police")
+                        Spacer()
+                        Text(p.name ?? "")
+                            .foregroundColor(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        selectedChatCharacter = p
                     }
                 }
             }
@@ -101,15 +103,15 @@ struct CaseDetailView: View {
             // Opposing Counsel
             Section(header: Text("Opposing Counsel")) {
                 if let opp = caseEntity.opposingCounsel {
-                    NavigationLink(
-                        destination: CharacterChatView(caseEntity: caseEntity, character: opp)
-                    ) {
-                        HStack {
-                            Text(opp.role ?? "Counsel")
-                            Spacer()
-                            Text(opp.name ?? "")
-                                .foregroundColor(.secondary)
-                        }
+                    HStack {
+                        Text(opp.role ?? "Counsel")
+                        Spacer()
+                        Text(opp.name ?? "")
+                            .foregroundColor(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        selectedChatCharacter = opp
                     }
                 }
             }
@@ -117,15 +119,15 @@ struct CaseDetailView: View {
             // Judge
             Section(header: Text("Judge")) {
                 if let j = caseEntity.judge {
-                    NavigationLink(
-                        destination: CharacterChatView(caseEntity: caseEntity, character: j)
-                    ) {
-                        HStack {
-                            Text("Judge")
-                            Spacer()
-                            Text(j.name ?? "")
-                                .foregroundColor(.secondary)
-                        }
+                    HStack {
+                        Text("Judge")
+                        Spacer()
+                        Text(j.name ?? "")
+                            .foregroundColor(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        selectedChatCharacter = j
                     }
                 }
             }
@@ -163,5 +165,9 @@ struct CaseDetailView: View {
             NotebookView(caseEntity: caseEntity)
                 .environment(\.managedObjectContext, viewContext)
         }
+        .fullScreenCover(item: $selectedChatCharacter) { character in
+    CharacterChatView(caseEntity: caseEntity, character: character)
+        .environment(\.managedObjectContext, viewContext)
+}
     }
 }

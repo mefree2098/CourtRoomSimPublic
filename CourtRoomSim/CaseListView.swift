@@ -10,7 +10,6 @@ struct CasesListView: View {
         entity: CaseEntity.entity(),
         sortDescriptors: [NSSortDescriptor(key: "id", ascending: false)]
     ) private var allCases: FetchedResults<CaseEntity>
-
     @State private var showNewCase = false
     @State private var showSettings = false
 
@@ -29,28 +28,26 @@ struct CasesListView: View {
                         .padding(.vertical, 4)
                     }
                 }
+                .onDelete(perform: deleteCases)
             }
         }
         .listStyle(SidebarListStyle())
         .navigationTitle("Cases")
         .toolbar {
-            // Dashboard (always in detail pane)
             ToolbarItem(placement: .navigationBarLeading) {
                 NavigationLink("Dashboard") {
                     DashboardView()
                 }
             }
-            // Settings as modal sheet
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
                     showSettings = true
                 } label: {
                     Image(systemName: "gear")
                         .imageScale(.large)
-                        .accessibility(label: Text("Settings"))
+                        .accessibilityLabel("Settings")
                 }
             }
-            // New Case as modal sheet
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
                     showNewCase = true
@@ -72,14 +69,16 @@ struct CasesListView: View {
     private var activeCases: [CaseEntity] {
         allCases.filter { $0.phase != CasePhase.completed.rawValue }
     }
-}
 
-struct CasesListView_Previews: PreviewProvider {
-    static var previews: some View {
-        NavigationView {
-            CasesListView()
-                .environment(\.managedObjectContext,
-                              PersistenceController.shared.container.viewContext)
+    private func deleteCases(at offsets: IndexSet) {
+        let casesToDelete = offsets.map { activeCases[$0] }
+        for c in casesToDelete {
+            viewContext.delete(c)
+        }
+        do {
+            try viewContext.save()
+        } catch {
+            print("Error deleting cases: \(error)")
         }
     }
 }
