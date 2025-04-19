@@ -1,18 +1,9 @@
 // CharacterChatView.swift
 // CourtRoomSim
-//
-// Added tap-to-dismiss keyboard anywhere in the chat view.
 
 import SwiftUI
+import UIKit
 import CoreData
-
-#if canImport(UIKit)
-extension View {
-    func hideKeyboard() {
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-    }
-}
-#endif
 
 struct CharacterChatView: View {
     @ObservedObject var caseEntity: CaseEntity
@@ -45,7 +36,7 @@ struct CharacterChatView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // Header
+                // Header with image, name, personality
                 HStack(spacing: 16) {
                     if let data = character.imageData,
                        let ui = UIImage(data: data) {
@@ -72,7 +63,7 @@ struct CharacterChatView: View {
                     Spacer()
                 }
                 .padding()
-                
+
                 Divider()
 
                 // Chat history
@@ -112,7 +103,7 @@ struct CharacterChatView: View {
 
                 Divider()
 
-                // Input
+                // Input field & send
                 HStack {
                     TextField("Type your message…", text: $userMessage)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
@@ -145,9 +136,15 @@ struct CharacterChatView: View {
                 NotebookView(caseEntity: caseEntity)
                     .environment(\.managedObjectContext, viewContext)
             }
-            .onTapGesture {
-                hideKeyboard()
-            }
+            // Dismiss keyboard on any tap without blocking navigation
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    UIApplication.shared.sendAction(
+                        #selector(UIResponder.resignFirstResponder),
+                        to: nil, from: nil, for: nil
+                    )
+                }
+            )
         }
         .id("chat-\(caseEntity.id!.uuidString)-\(character.id!.uuidString)")
     }
@@ -157,7 +154,7 @@ struct CharacterChatView: View {
         guard !text.isEmpty else { return }
         userMessage = ""
 
-        // Save user message
+        // Save user's message
         let userMsg = Conversation(context: viewContext)
         userMsg.id = UUID()
         userMsg.sender = UserProfileManager.shared.playerName
@@ -166,7 +163,7 @@ struct CharacterChatView: View {
         userMsg.phase = caseEntity.phase ?? CasePhase.preTrial.rawValue
         userMsg.caseEntity = caseEntity
         userMsg.courtCharacter = character
-        do { try viewContext.save() } catch { errorMessage = error.localizedDescription }
+        try? viewContext.save()
 
         // Send to AI
         isLoading = true
@@ -174,20 +171,22 @@ struct CharacterChatView: View {
 
         let scenario = caseEntity.details ?? ""
         let role = caseEntity.userRole ?? ""
-        let history = messages.map { "\($0.sender): \($0.message ?? "")" }.joined(separator: "\n")
+        let history = messages
+            .map { "\($0.sender): \($0.message ?? "")" }
+            .joined(separator: "\n")
         let systemPrompt = """
-You are \(character.name ?? "Character").
+        You are \(character.name ?? "Character").
 
-Scenario: \(scenario)
+        Scenario: \(scenario)
 
-The user is the \(role).
+        The user is the \(role).
 
-Stay in character, no disclaimers.
+        Stay in character, no disclaimers.
 
-Conversation so far:
+        Conversation so far:
 
-\(history)
-"""
+        \(history)
+        """
 
         OpenAIHelper.shared.chatCompletion(
             model: caseEntity.aiModel ?? AiModel.o4Mini.rawValue,

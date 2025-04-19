@@ -5,7 +5,7 @@ import SwiftUI
 
 @main
 struct CourtRoomSimApp: App {
-    // Use the existing PersistenceController in your project
+    // Shared Core Data persistence controller
     let persistenceController = PersistenceController.shared
 
     var body: some Scene {
@@ -15,8 +15,10 @@ struct CourtRoomSimApp: App {
                 Text("Select or create a case")
                     .foregroundColor(.secondary)
             }
-            .environment(\.managedObjectContext,
-                         persistenceController.container.viewContext)
+            .environment(
+                \.managedObjectContext,
+                persistenceController.container.viewContext
+            )
         }
     }
 }
