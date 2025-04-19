@@ -23,10 +23,7 @@ struct TrialFlowView: View {
     @ObservedObject var caseEntity: CaseEntity
     @Environment(\.managedObjectContext) var viewContext
     @Environment(\.dismiss) var dismiss
-
-    @FetchRequest
-    var trialEvents: FetchedResults<TrialEvent>  // internal access for helpers
-
+    @FetchRequest var trialEvents: FetchedResults<TrialEvent>
     @State var currentStage: TrialStage
     @State private var currentSpeaker: String = "Prosecution"
     @State var isLoading: Bool = false
@@ -39,7 +36,6 @@ struct TrialFlowView: View {
         self.caseEntity = caseEntity
         let rawStage = caseEntity.trialStage ?? TrialStage.openingStatements.rawValue
         _currentStage = State(initialValue: TrialStage(rawValue: rawStage) ?? .openingStatements)
-
         let request = NSFetchRequest<TrialEvent>(entityName: "TrialEvent")
         request.predicate = NSPredicate(format: "caseEntity == %@", caseEntity)
         request.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: true)]
@@ -55,11 +51,8 @@ struct TrialFlowView: View {
                         .padding(.trailing, 16)
                 }
                 .padding(.top, 4)
-
                 Divider()
-
                 TrialTranscriptView(events: trialEvents)
-
                 if let err = errorMessage {
                     Text(err)
                         .foregroundColor(.red)
@@ -69,9 +62,7 @@ struct TrialFlowView: View {
                     ProgressView()
                         .padding(.vertical, 2)
                 }
-
                 Divider()
-
                 switch currentStage {
                 case .openingStatements:
                     OpeningStatementsView(
@@ -81,7 +72,6 @@ struct TrialFlowView: View {
                         autoOpponent: gptOpponentStatement,
                         moveNext: advanceStageAndPersist
                     )
-
                 case .prosecutionCase:
                     if isUserProsecutor {
                         DirectExaminationView(
@@ -104,7 +94,6 @@ struct TrialFlowView: View {
                             onFinishCase: advanceStageAndPersist
                         )
                     }
-
                 case .defenseCase:
                     if !isUserProsecutor {
                         DirectExaminationView(
@@ -122,12 +111,11 @@ struct TrialFlowView: View {
                         AiCounselView(
                             roleName: "Defense (AI)",
                             caseEntity: caseEntity,
-                            recordTranscript: recordEvent,    // fixed: use recordEvent instead of trialEvents
+                            recordTranscript: recordEvent,
                             gptWitnessAnswer: gptWitnessAnswer,
                             onFinishCase: advanceStageAndPersist
                         )
                     }
-
                 case .closingArguments:
                     ClosingArgumentsView(
                         caseEntity: caseEntity,
@@ -136,7 +124,6 @@ struct TrialFlowView: View {
                         autoOpponent: gptOpponentStatement,
                         moveNext: advanceStageAndPersist
                     )
-
                 case .juryDeliberation:
                     JuryDeliberationView(
                         caseEntity: caseEntity,
@@ -146,7 +133,6 @@ struct TrialFlowView: View {
                             persistStage(.verdict)
                         }
                     )
-
                 case .verdict:
                     VStack(spacing: 16) {
                         Text("Verdict: \(caseEntity.verdict ?? "Undecided")")
@@ -165,6 +151,8 @@ struct TrialFlowView: View {
             }
             .onAppear {
                 ensureJudgeAndJury()
+                // Persist the current trial stage and map to high-level phase
+                persistStage(currentStage)
                 buildPlan()
             }
             .simultaneousGesture(
@@ -208,17 +196,26 @@ struct TrialFlowView: View {
     func advanceStageAndPersist() {
         switch currentStage {
         case .openingStatements: currentStage = .prosecutionCase
-        case .prosecutionCase:    currentStage = .defenseCase
-        case .defenseCase:        currentStage = .closingArguments
-        case .closingArguments:   currentStage = .juryDeliberation
-        case .juryDeliberation:   currentStage = .verdict
-        case .verdict:            break
+        case .prosecutionCase: currentStage = .defenseCase
+        case .defenseCase: currentStage = .closingArguments
+        case .closingArguments: currentStage = .juryDeliberation
+        case .juryDeliberation: currentStage = .verdict
+        case .verdict: break
         }
         persistStage(currentStage)
     }
 
     func persistStage(_ stage: TrialStage) {
         caseEntity.trialStage = stage.rawValue
+        // Map trial stage to high-level case phase
+        switch stage {
+        case .openingStatements, .prosecutionCase, .defenseCase, .closingArguments:
+            caseEntity.phase = CasePhase.trial.rawValue
+        case .juryDeliberation:
+            caseEntity.phase = CasePhase.juryDeliberation.rawValue
+        case .verdict:
+            caseEntity.phase = CasePhase.completed.rawValue
+        }
         try? viewContext.save()
     }
 
@@ -270,18 +267,16 @@ struct TrialFlowView: View {
         let preHistory = (try? viewContext.fetch(convFetch))?
             .map { "\($0.sender ?? ""): \($0.message ?? "")" }
             .joined(separator: "\n") ?? ""
-
         let evidence = caseEntity.details ?? ""
         let planText = existingPlan?.planText ?? ""
         let systemPrompt = """
-        You are \(opp.name ?? "Opposing Counsel"), the \
-        \(isUserProsecutor ? "Defense Counsel" : "Prosecuting Counsel") in a US criminal court.
-        Based on evidence: \(evidence),
-        prior transcript: \(preHistory),
-        and existing plan: \(planText),
-        update your concise strategic plan.
-        """
-
+ You are \(opp.name ?? "Opposing Counsel"), the \
+ \(isUserProsecutor ? "Defense Counsel" : "Prosecuting Counsel") in a US criminal court.
+ Based on evidence: \(evidence),
+ prior transcript: \(preHistory),
+ and existing plan: \(planText),
+ update your concise strategic plan.
+ """
         OpenAIHelper.shared.chatCompletion(
             model: caseEntity.aiModel ?? AiModel.o4Mini.rawValue,
             system: systemPrompt,

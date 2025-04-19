@@ -10,6 +10,7 @@ struct CasesListView: View {
         entity: CaseEntity.entity(),
         sortDescriptors: [NSSortDescriptor(key: "id", ascending: false)]
     ) private var allCases: FetchedResults<CaseEntity>
+
     @State private var showNewCase = false
     @State private var showSettings = false
 
@@ -17,7 +18,16 @@ struct CasesListView: View {
         List {
             Section("Active Cases") {
                 ForEach(activeCases) { c in
-                    NavigationLink(destination: CaseDetailView(caseEntity: c)) {
+                    NavigationLink {
+                        // Tapping a pre‑trial case still goes to CaseDetailView
+                        if c.phase == CasePhase.preTrial.rawValue {
+                            CaseDetailView(caseEntity: c)
+                        }
+                        // But any case already in trial/jury phase goes right into the flow
+                        else {
+                            TrialFlowView(caseEntity: c)
+                        }
+                    } label: {
                         VStack(alignment: .leading) {
                             Text(c.crimeType ?? "Untitled Case")
                                 .font(.headline)
