@@ -15,14 +15,12 @@ extension TrialFlowView {
 
         isLoading = true
         let systemPrompt = """
-        You are \(opp.name ?? "Opposing Counsel"), the \(opp.role ?? "Counsel") in a United States criminal court under the supervision of the presiding judge. \
-        Provide exactly ONE concise courtroom statement (no more than two sentences) in response to the opposing counsel. \
-        Once finished, explicitly say “I rest my case.”
-        """
+You are \(opp.name ?? "Opposing Counsel"), the \(opp.role ?? "Counsel") in a United States criminal court under the supervision of the presiding judge. Provide exactly ONE concise courtroom statement (no more than two sentences) in response to the opposing counsel. Once finished, explicitly say “I rest my case.”
+"""
         let userPrompt = """
-        Opponent said: "\(userText)"
-        Case summary: \(caseEntity.details ?? "")
-        """
+Opponent said: "\(userText)"
+Case summary: \(caseEntity.details ?? "")
+"""
 
         OpenAIHelper.shared.chatCompletion(
             model: caseEntity.aiModel ?? AiModel.o4Mini.rawValue,
@@ -60,9 +58,9 @@ extension TrialFlowView {
         isLoading = true
         let systemPrompt = "You are \(witness), answering in first person, no AI references, fully addressing the question based on all prior context."
         let userPrompt = """
-        Context: \(context)
-        Q: "\(question)"
-        """
+Context: \(context)
+Q: "\(question)"
+"""
 
         OpenAIHelper.shared.chatCompletion(
             model: caseEntity.aiModel ?? AiModel.o4Mini.rawValue,
@@ -91,24 +89,33 @@ extension TrialFlowView {
         _ onNewQuestion: @escaping (String?) -> Void
     ) {
         guard let opp = caseEntity.opposingCounsel else {
-            onNewQuestion(nil); return
+            onNewQuestion(nil)
+            return
         }
         let apiKey = UserDefaults.standard.string(forKey: "openAIKey") ?? ""
         guard !apiKey.isEmpty else {
-            onNewQuestion(nil); return
+            onNewQuestion(nil)
+            return
         }
 
         isLoading = true
+        // Determine AI role opposite of user selection
+        let userRole = caseEntity.userRole ?? ""
+        let aiRoleName: String
+        if userRole.lowercased().contains("prosecutor") {
+            aiRoleName = "Defense Counsel"
+        } else {
+            aiRoleName = "Prosecuting Counsel"
+        }
+
         let systemPrompt = """
-        You are \(opp.name ?? "Opposing Counsel"), the \(opp.role ?? "Counsel") in a United States criminal court. \
-        Under the judge’s supervision, ask exactly ONE concise cross‑examination question (no repeats). \
-        Do NOT bundle multiple questions.
-        """
+You are \(opp.name ?? "Opposing Counsel"), the \(aiRoleName) in a United States criminal court under the supervision of the presiding judge. Under the judge’s supervision, ask exactly ONE concise cross‑examination question (no repeats). Do NOT bundle multiple questions.
+"""
         let userPrompt = """
-        Already asked: \(askedSoFar.joined(separator: " | "))
-        Witness: \(witness)
-        Context: \(context)
-        """
+Already asked: \(askedSoFar.joined(separator: " | "))
+Witness: \(witness)
+Context: \(context)
+"""
 
         OpenAIHelper.shared.chatCompletion(
             model: caseEntity.aiModel ?? AiModel.o4Mini.rawValue,
@@ -121,14 +128,12 @@ extension TrialFlowView {
                 case .success(let question):
                     let clean = question.trimmingCharacters(in: .whitespacesAndNewlines)
                     if askedSoFar.contains(where: { $0.caseInsensitiveCompare(clean) == .orderedSame }) {
-                        // Judge intercedes
                         recordEvent("Judge", "Counsel, please move on to a different question.")
                         onNewQuestion(nil)
                     } else {
                         onNewQuestion(clean)
                     }
                 case .failure:
-                    // Judge fallback
                     recordEvent("Judge", "Counsel, please proceed.")
                     onNewQuestion(nil)
                 }

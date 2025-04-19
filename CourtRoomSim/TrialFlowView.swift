@@ -23,15 +23,14 @@ struct TrialFlowView: View {
     @ObservedObject var caseEntity: CaseEntity
     @Environment(\.managedObjectContext) var viewContext
     @Environment(\.dismiss) var dismiss
+
     @FetchRequest private var trialEvents: FetchedResults<TrialEvent>
-    
     @State var currentStage: TrialStage = .openingStatements
     @State var currentSpeaker: String = "Prosecution"
     @State var isLoading: Bool = false
     @State var showRoster: Bool = false
-    @State var showNotebook: Bool = false
     @State var errorMessage: String?
-    
+
     init(caseEntity: CaseEntity) {
         self.caseEntity = caseEntity
         let req = NSFetchRequest<TrialEvent>(entityName: "TrialEvent")
@@ -44,18 +43,8 @@ struct TrialFlowView: View {
         VStack(spacing: 0) {
             HStack {
                 Spacer()
-                Button("Case Roster") {
-                    showRoster = true
-                }
-                .padding(.trailing, 8)
-                Button(action: {
-                    showNotebook = true
-                }) {
-                    Image(systemName: "book")
-                        .imageScale(.large)
-                        .accessibility(label: Text("Notebook"))
-                }
-                .padding(.trailing, 16)
+                Button("Case Roster") { showRoster = true }
+                    .padding(.trailing, 16)
             }
             .padding(.top, 4)
 
@@ -68,7 +57,6 @@ struct TrialFlowView: View {
                     .foregroundColor(.red)
                     .padding(.vertical, 2)
             }
-
             if isLoading {
                 ProgressView()
                     .padding(.vertical, 2)
@@ -85,6 +73,7 @@ struct TrialFlowView: View {
                     autoOpponent: gptOpponentStatement,
                     moveNext: advanceStage
                 )
+
             case .prosecutionCase:
                 if isUserProsecutor {
                     DirectExaminationView(
@@ -106,6 +95,7 @@ struct TrialFlowView: View {
                         onFinishCase: advanceStage
                     )
                 }
+
             case .defenseCase:
                 if !isUserProsecutor {
                     DirectExaminationView(
@@ -127,6 +117,7 @@ struct TrialFlowView: View {
                         onFinishCase: advanceStage
                     )
                 }
+
             case .closingArguments:
                 ClosingArgumentsView(
                     caseEntity: caseEntity,
@@ -135,21 +126,21 @@ struct TrialFlowView: View {
                     autoOpponent: gptOpponentStatement,
                     moveNext: advanceStage
                 )
+
             case .juryDeliberation:
                 JuryDeliberationView(
                     caseEntity: caseEntity,
                     recordTranscript: recordEvent,
                     finalizeVerdict: setVerdict
                 )
+
             case .verdict:
                 VStack(spacing: 16) {
                     Text("Verdict: \(caseEntity.verdict ?? "Undecided")")
                         .font(.largeTitle)
                         .bold()
-                    Button("Close Case") {
-                        dismiss()
-                    }
-                    .padding()
+                    Button("Close Case") { dismiss() }
+                        .padding()
                 }
             }
         }
@@ -159,19 +150,21 @@ struct TrialFlowView: View {
             CaseRosterSheet(caseEntity: caseEntity)
                 .environment(\.managedObjectContext, viewContext)
         }
-        .sheet(isPresented: $showNotebook) {
-            NotebookView(caseEntity: caseEntity)
-                .environment(\.managedObjectContext, viewContext)
-        }
-        .onAppear {
-            ensureJudgeAndJury()
-        }
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                UIApplication.shared.sendAction(
+                    #selector(UIResponder.resignFirstResponder),
+                    to: nil, from: nil, for: nil
+                )
+            }
+        )
     }
 
     var isUserProsecutor: Bool {
         (caseEntity.userRole ?? "").lowercased().contains("prosecutor")
     }
 
+    // MARK: – Helpers now accessible
     func recordEvent(_ speaker: String, _ msg: String) {
         let ev = TrialEvent(context: viewContext)
         ev.id = UUID()
@@ -185,12 +178,12 @@ struct TrialFlowView: View {
     func advanceStage() {
         currentStage = {
             switch currentStage {
-            case .openingStatements:   return .prosecutionCase
-            case .prosecutionCase:     return .defenseCase
-            case .defenseCase:         return .closingArguments
-            case .closingArguments:    return .juryDeliberation
-            case .juryDeliberation:    return .verdict
-            case .verdict:             return .verdict
+            case .openingStatements: return .prosecutionCase
+            case .prosecutionCase:    return .defenseCase
+            case .defenseCase:        return .closingArguments
+            case .closingArguments:   return .juryDeliberation
+            case .juryDeliberation:   return .verdict
+            case .verdict:            return .verdict
             }
         }()
     }
@@ -201,7 +194,7 @@ struct TrialFlowView: View {
         currentStage = .verdict
     }
 
-    func ensureJudgeAndJury() {
+    private func ensureJudgeAndJury() {
         if caseEntity.judge == nil {
             let judge = CourtCharacter(context: viewContext)
             judge.id = UUID()
@@ -210,10 +203,9 @@ struct TrialFlowView: View {
             judge.background = "Seasoned jurist respected for balanced rulings."
             caseEntity.judge = judge
         }
-
-        let existing = caseEntity.jury as? Set<CourtCharacter> ?? []
-        if existing.count < 12 {
-            for i in existing.count..<12 {
+        let existingJury = caseEntity.jury as? Set<CourtCharacter> ?? []
+        if existingJury.count < 12 {
+            for i in existingJury.count..<12 {
                 let juror = CourtCharacter(context: viewContext)
                 juror.id = UUID()
                 juror.name = "Juror #\(i+1)"
@@ -221,7 +213,7 @@ struct TrialFlowView: View {
                 juror.background = "Citizen with unique life experience."
                 caseEntity.addToJury(juror)
             }
-            try? viewContext.save()
         }
+        try? viewContext.save()
     }
 }

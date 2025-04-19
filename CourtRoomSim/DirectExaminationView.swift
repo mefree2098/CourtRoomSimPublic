@@ -10,13 +10,13 @@ struct DirectExaminationView: View {
     @ObservedObject var caseEntity: CaseEntity
     let record: (String, String) -> Void
     let gptAnswer: (_ witness: String,
-                    _ q: String,
-                    _ ctx: String,
-                    _ cb: @escaping (String) -> Void) -> Void
+                    _ question: String,
+                    _ context: String,
+                    _ callback: @escaping (String) -> Void) -> Void
     let gptCross: (_ witness: String,
-                   _ ctx: String,
+                   _ context: String,
                    _ asked: [String],
-                   _ cb: @escaping (String?) -> Void) -> Void
+                   _ callback: @escaping (String?) -> Void) -> Void
     @Binding var isLoading: Bool
     let lockWitness: Bool
     let finishCase: () -> Void
@@ -28,97 +28,153 @@ struct DirectExaminationView: View {
     @State private var step = 0             // 0=direct, 1=cross, 2=redirect, 3=done
     @State private var askedCross: [String] = []
     @State private var askedFirst = false
-    @State private var showObj = false
-    @State private var objReason = ""
+
+    @State private var pendingCrossQuestion: String? = nil
+    @State private var showObjectionInput = false
+    @State private var objectionText = ""
+
+    // Limit cross-examination to prevent infinite loops
+    private let crossQuestionLimit = 5
 
     var body: some View {
         VStack(spacing: 10) {
             Text("\(roleName) Case")
                 .font(.headline)
 
-            witnessPicker
-            questionBar
-            objectButton
-            phaseButtons
+            // Witness picker
+            Group {
+                if askedFirst && lockWitness {
+                    Text(selected?.name ?? "")
+                        .font(.subheadline)
+                        .foregroundColor(.gray)
+                } else {
+                    Picker("Witness", selection: $selected) {
+                        Text("None").tag(CourtCharacter?.none)
+                        ForEach(possibleWitnesses, id: \.id) { w in
+                            Text(w.name ?? "Witness").tag(CourtCharacter?.some(w))
+                        }
+                    }
+                    .pickerStyle(MenuPickerStyle())
+                }
+            }
 
             Divider()
 
+            // Phase UI
+            if step == 0 {
+                // Direct examination entry
+                HStack {
+                    TextField("Ask a question…", text: $questionText)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                    Button("Ask") { ask() }
+                        .disabled(selected == nil || questionText.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+                .padding(.horizontal)
+
+                Button("Done with Direct") {
+                    finishDirect()
+                }
+                .disabled(selected == nil)
+                .padding(.horizontal)
+
+            } else if let q = pendingCrossQuestion {
+                // AI cross-examination question
+                Text(q)
+                    .padding()
+                    .multilineTextAlignment(.center)
+
+                HStack {
+                    Button("Object") {
+                        showObjectionInput = true
+                    }
+                    .buttonStyle(.bordered)
+
+                    Spacer()
+
+                    Button("Proceed") {
+                        proceedCross()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding(.horizontal)
+
+            } else if step == 1 {
+                // Move to re-direct phase
+                Button("Proceed to Re‑Direct") {
+                    step = 2
+                }
+                .disabled(isLoading)
+                .padding(.horizontal)
+
+            } else if step == 2 {
+                // Re-direct examination entry
+                HStack {
+                    TextField("Ask re‑direct question…", text: $questionText)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                    Button("Ask") { askRedirect() }
+                        .disabled(questionText.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+                .padding(.horizontal)
+
+                Button("Done with Re‑Direct") {
+                    finishRedirect()
+                }
+                .padding(.horizontal)
+
+            } else if step == 3 {
+                // Finish with this witness
+                Button("Finish with this Witness") {
+                    nextWitness()
+                }
+                .padding(.horizontal)
+            }
+
+            Divider()
+
+            // End entire case
             Button("Finish Entire \(roleName) Case") {
                 finishCase()
             }
             .padding(.top, 4)
         }
-        .alert("State your objection", isPresented: $showObj) {
-            TextField("Objection reason", text: $objReason)
-            Button("Submit") { submitObjection() }
-            Button("Cancel", role: .cancel) { objReason = "" }
-        }
-        .padding()
-    }
-
-    // MARK: – UI Components
-
-    private var witnessPicker: some View {
-        Group {
-            if askedFirst && lockWitness {
-                Text(selected?.name ?? "")
-                    .font(.subheadline)
-                    .foregroundColor(.gray)
-            } else {
-                Picker("Witness", selection: $selected) {
-                    Text("None").tag(CourtCharacter?.none)
-                    ForEach(possibleWitnesses, id: \.id) { w in
-                        Text(w.name ?? "Witness").tag(CourtCharacter?.some(w))
+        // Objection input sheet
+        .sheet(isPresented: $showObjectionInput) {
+            NavigationView {
+                Form {
+                    Section(header: Text("Your Objection")) {
+                        TextField("Why do you object?", text: $objectionText)
                     }
                 }
-                .pickerStyle(MenuPickerStyle())
+                .navigationTitle("Objection")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            objectionText = ""
+                            showObjectionInput = false
+                        }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Submit") {
+                            submitObjection()
+                        }
+                        .disabled(objectionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
             }
         }
-    }
-
-    private var questionBar: some View {
-        HStack {
-            TextField("Ask a question…", text: $questionText)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-            Button("Ask") { ask() }
-                .disabled(selected == nil || questionText.trimmingCharacters(in: .whitespaces).isEmpty)
-        }
-        .padding(.horizontal)
-    }
-
-    private var objectButton: some View {
-        // simplified label
-        Button("Object") {
-            showObj = true
-        }
-        .disabled(step != 1)
-    }
-
-    private var phaseButtons: some View {
-        Group {
-            if step == 0 {
-                Button("Done with Direct") { finishDirect() }
-                    .disabled(selected == nil)
-            } else if step == 1 {
-                Button("Proceed to Re‑Direct") { step = 2 }
-            } else if step == 2 {
-                Button("Done with Re‑Direct") { finishRedirect() }
-            } else if step == 3 {
-                Button("Finish with this Witness") { nextWitness() }
-            }
-        }
+        .padding()
     }
 
     // MARK: – Actions
 
     private func ask() {
-        guard let w = selected, let wName = w.name else { return }
+        guard let w = selected, let name = w.name else { return }
         let q = questionText.trimmingCharacters(in: .whitespaces)
         askedFirst = true
-        record(roleName, "Q(\(wName)): \(q)")
+        record(roleName, "Q(\(name)): \(q)")
         questionText = ""
-        gptAnswer(wName, q, directSummary) { ans in
-            record(wName, ans)
+        gptAnswer(name, q, directSummary) { ans in
+            record(name, ans)
             directSummary += "Q: \(q)\nA: \(ans)\n"
         }
     }
@@ -128,65 +184,72 @@ struct DirectExaminationView: View {
         askCross()
     }
 
-    private func finishRedirect() {
-        step = 3
-        askCross()
-    }
-
-    /// Centralized cross‑exam loop
     private func askCross() {
-        guard let wName = selected?.name else { return }
-        gptCross(wName, directSummary, askedCross) { aiQ in
-            guard let q = aiQ?.trimmingCharacters(in: .whitespacesAndNewlines), !q.isEmpty else {
+        guard let name = selected?.name else { return }
+        // Prevent infinite loop
+        if askedCross.count >= crossQuestionLimit {
+            record("Judge", "No further questions, your honor.")
+            step = 2
+            return
+        }
+        pendingCrossQuestion = nil
+        gptCross(name, directSummary, askedCross) { aiQ in
+            if let q = aiQ?.trimmingCharacters(in: .whitespacesAndNewlines), !q.isEmpty {
+                // Record AI counsel question
+                record(oppositeRole, q)
+                pendingCrossQuestion = q
+            } else {
                 record("Judge", "No further questions, your honor.")
-                step = step < 2 ? step + 1 : 3
-                return
+                step = 2
             }
-            handleAiCross(q)
         }
     }
 
-    private func submitObjection() {
-        let sustained = Bool.random()
-        record("Judge", "Objection (\(objReason)). Judge: \(sustained ? "Sustained" : "Overruled")")
-        objReason = ""
-        if sustained {
-            // Immediately loop to next cross question
+    private func proceedCross() {
+        guard let q = pendingCrossQuestion,
+              let name = selected?.name else { return }
+        pendingCrossQuestion = nil
+        askedCross.append(q)
+        gptAnswer(name, q, directSummary) { ans in
+            record(name, ans)
+            directSummary += "Q: \(q)\nA: \(ans)\n"
             askCross()
         }
     }
 
-    private func handleAiCross(_ q: String) {
-        let counselName = oppositeRole
-        record(counselName, q)
-        CrossExamUI.shared.present(question: q) { allowed, reason in
-            guard let wName = selected?.name else { return }
-            if !allowed {
-                // if overruled, proceed; if sustained, loop
-                let overruled = Bool.random()
-                record("Judge", "\(counselName) objects (\(reason)). Judge: \(overruled ? "Overruled" : "Sustained")")
-                if !overruled {
-                    // sustained → ask next
-                    askCross()
-                    return
-                }
-            }
-            // witness answers, then loop
-            gptAnswer(wName, q, directSummary) { ans in
-                record(wName, ans)
-                directSummary += "Q: \(q)\nA: \(ans)\n"
-                askedCross.append(q)
-                askCross()
-            }
+    private func askRedirect() {
+        guard let w = selected, let name = w.name else { return }
+        let q = questionText.trimmingCharacters(in: .whitespaces)
+        record(roleName, "Q(\(name)): \(q)")
+        questionText = ""
+        gptAnswer(name, q, directSummary) { ans in
+            record(name, ans)
+            directSummary += "Q: \(q)\nA: \(ans)\n"
         }
+    }
+
+    private func finishRedirect() {
+        step = 3
+    }
+
+    private func submitObjection() {
+        showObjectionInput = false
+        record("Judge", "Objection (\(objectionText)).")
+        let sustained = Bool.random()
+        record("Judge", "Judge: \(sustained ? "Sustained" : "Overruled")")
+        let action = sustained ? askCross : proceedCross
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            action()
+        }
+        objectionText = ""
     }
 
     private func nextWitness() {
         let list = possibleWitnesses
-        if let current = selected, let idx = list.firstIndex(of: current),
-           idx + 1 < list.count
-        {
-            selected = list[idx + 1]
+        if let current = selected,
+           let idx = list.firstIndex(of: current),
+           idx + 1 < list.count {
+            selected = list[idx+1]
         } else {
             selected = list.first
         }
@@ -204,8 +267,7 @@ struct DirectExaminationView: View {
         if let p = caseEntity.police    as? Set<CourtCharacter> { set.formUnion(p) }
         if let sus = caseEntity.suspect { set.insert(sus) }
         if let v = caseEntity.victim,
-           !(caseEntity.crimeType?.lowercased().contains("murder") ?? false)
-        {
+           !(caseEntity.crimeType?.lowercased().contains("murder") ?? false) {
             set.insert(v)
         }
         return Array(set)

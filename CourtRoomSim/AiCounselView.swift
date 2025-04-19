@@ -5,96 +5,146 @@ import SwiftUI
 import CoreData
 
 struct AiCounselView: View {
-    // Injected
     let roleName: String
     @ObservedObject var caseEntity: CaseEntity
     let recordTranscript: (String, String) -> Void
     let gptWitnessAnswer: (String, String, String, @escaping (String) -> Void) -> Void
     let onFinishCase: () -> Void
 
-    // State
     @State private var currentIndex = 0
     @State private var currentWitness: CourtCharacter?
     @State private var contextSummary = ""
     @State private var askedQuestions: [String] = []
     @State private var pendingQuestion = ""
     @State private var awaitingUser = false
-    @State private var showObj = false
-    @State private var objReason = ""
     @State private var isLoading = false
 
-    // Maximum questions per witness
+    // Objection sheet
+    @State private var showObjectionInput = false
+    @State private var objectionText = ""
+
     private let questionLimit = 5
+
+    @FetchRequest private var messages: FetchedResults<Conversation>
+    init(
+        roleName: String,
+        caseEntity: CaseEntity,
+        recordTranscript: @escaping (String, String) -> Void,
+        gptWitnessAnswer: @escaping (String, String, String, @escaping (String) -> Void) -> Void,
+        onFinishCase: @escaping () -> Void
+    ) {
+        self.roleName = roleName
+        self.caseEntity = caseEntity
+        self.recordTranscript = recordTranscript
+        self.gptWitnessAnswer = gptWitnessAnswer
+        self.onFinishCase = onFinishCase
+
+        let req = NSFetchRequest<Conversation>(entityName: "Conversation")
+        req.predicate = NSPredicate(
+            format: "caseEntity == %@ AND phase == %@",
+            caseEntity,
+            CasePhase.trial.rawValue
+        )
+        req.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: true)]
+        _messages = FetchRequest(fetchRequest: req)
+    }
 
     var body: some View {
         VStack(spacing: 16) {
-            Text(roleName).font(.headline)
+            Text(roleName)
+                .font(.headline)
 
             if awaitingUser {
-                Text(pendingQuestion).padding()
+                // The AI’s question
+                Text(pendingQuestion)
+                    .padding()
+                    .multilineTextAlignment(.center)
+
+                // Inline bar with Object / Proceed
                 HStack {
-                    Button("Object") { showObj = true }
+                    Button("Object") {
+                        showObjectionInput = true
+                    }
+                    .buttonStyle(.bordered)
+
                     Spacer()
-                    Button("Proceed") { allowAnswer() }
+
+                    Button("Proceed") {
+                        allowAnswer()
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
                 .padding(.horizontal)
-            }
-            else if isLoading {
-                ProgressView()
-            }
-            else if currentWitness == nil {
+
+            } else if isLoading {
+                ProgressView().padding()
+            } else if currentWitness == nil {
                 Text("\(roleName) finished questioning.")
-                Button("Continue") { onFinishCase() }
+                Button("Continue", action: onFinishCase)
+                    .buttonStyle(.borderedProminent)
+            } else {
+                Button("Proceed", action: askQuestion)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isLoading)
             }
-            else {
-                Button("Proceed") {
-                    askQuestion()
-                }
-                .disabled(isLoading)
-            }
-        }
-        .alert("Objection", isPresented: $showObj) {
-            TextField("Reason", text: $objReason)
-            Button("Submit") { handleObjection() }
-            Button("Cancel", role: .cancel) {}
         }
         .padding()
-        .onAppear { nextWitness() }
+        .onAppear(perform: nextWitness)
+
+        // Objection entry sheet
+        .sheet(isPresented: $showObjectionInput) {
+            NavigationView {
+                Form {
+                    Section("Your Objection") {
+                        TextField("Why do you object?", text: $objectionText)
+                    }
+                }
+                .navigationTitle("Objection")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            objectionText = ""
+                            showObjectionInput = false
+                        }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Submit") {
+                            submitObjection()
+                        }
+                        .disabled(objectionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+        }
     }
 
     private func askQuestion() {
-        // Enforce limit
+        guard let w = currentWitness else { return }
         if askedQuestions.count >= questionLimit {
             recordTranscript(roleName, "I rest my case.")
             onFinishCase()
             return
         }
-
-        guard let w = currentWitness else { return }
         isLoading = true
-
         let systemPrompt = """
-        You are \(roleName) under the judge’s supervision. \
-        Ask exactly ONE concise question of \(w.name ?? "the witness") based on context. \
-        Do not repeat or bundle questions.
+        You are \(roleName). \
+        Ask ONE concise question of \(w.name ?? "the witness") based on context.
         """
         let userPrompt = """
         Context: \(contextSummary)
         Already asked: \(askedQuestions.joined(separator: " | "))
         """
-
         OpenAIHelper.shared.chatCompletion(
             model: caseEntity.aiModel ?? AiModel.o4Mini.rawValue,
             system: systemPrompt,
             user: userPrompt
         ) { result in
             DispatchQueue.main.async {
-                self.isLoading = false
+                isLoading = false
                 switch result {
                 case .success(let q):
                     let clean = q.trimmingCharacters(in: .whitespacesAndNewlines)
-                    // If GPT returns nothing new, rest
-                    if clean.isEmpty || askedQuestions.contains(where: { $0.caseInsensitiveCompare(clean) == .orderedSame }) {
+                    if clean.isEmpty || askedQuestions.contains(clean) {
                         recordTranscript("Judge", "No further questions, your honor.")
                         onFinishCase()
                     } else {
@@ -102,7 +152,7 @@ struct AiCounselView: View {
                         awaitingUser = true
                     }
                 case .failure:
-                    recordTranscript("Judge", "Counsel, please proceed.")
+                    recordTranscript("Judge", "Please proceed.")
                     onFinishCase()
                 }
             }
@@ -114,28 +164,46 @@ struct AiCounselView: View {
         recordTranscript(roleName, pendingQuestion)
         awaitingUser = false
         askedQuestions.append(pendingQuestion)
-
-        // Get witness answer, then delay before next ask
         gptWitnessAnswer(w.name ?? "", pendingQuestion, contextSummary) { ans in
             recordTranscript(w.name ?? "", ans)
             contextSummary += "Q: \(pendingQuestion)\nA: \(ans)\n"
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                 askQuestion()
             }
         }
     }
 
-    private func handleObjection() {
-        let sustained = Bool.random()
-        recordTranscript("Judge", "Objection (\(objReason)). Judge: \(sustained ? "Sustained" : "Overruled")")
-        objReason = ""
-        if sustained {
-            // Delay before next question
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                askQuestion()
+    private func submitObjection() {
+        showObjectionInput = false
+        recordTranscript(roleName, "Objection: \(objectionText)")
+        isLoading = true
+        let judgePrompt = """
+        You are the judge. Counsel objected: \
+        \(objectionText). Based on context: \(contextSummary), rule:
+        """
+        OpenAIHelper.shared.chatCompletion(
+            model: caseEntity.aiModel ?? AiModel.o4Mini.rawValue,
+            system: judgePrompt,
+            user: ""
+        ) { result in
+            DispatchQueue.main.async {
+                isLoading = false
+                let ruling: String
+                if case .success(let r) = result {
+                    ruling = r.trimmingCharacters(in: .whitespacesAndNewlines)
+                } else {
+                    ruling = "Overruled."
+                }
+                recordTranscript("Judge", ruling)
+                if ruling.lowercased().contains("sustain") {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                        askQuestion()
+                    }
+                } else {
+                    allowAnswer()
+                }
+                objectionText = ""
             }
-        } else {
-            allowAnswer()
         }
     }
 
