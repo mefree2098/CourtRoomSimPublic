@@ -20,6 +20,7 @@ struct DirectExaminationView: View {
     @Binding var isLoading: Bool
     let lockWitness: Bool
     let finishCase: () -> Void
+    let onPlanUpdate: () -> Void
 
     // MARK: – UI State
     @State private var selected: CourtCharacter?
@@ -28,12 +29,11 @@ struct DirectExaminationView: View {
     @State private var step = 0             // 0=direct, 1=cross, 2=redirect, 3=done
     @State private var askedCross: [String] = []
     @State private var askedFirst = false
-
     @State private var pendingCrossQuestion: String? = nil
     @State private var showObjectionInput = false
     @State private var objectionText = ""
 
-    // Limit cross-examination to prevent infinite loops
+    // Limit cross‑exam questions
     private let crossQuestionLimit = 5
 
     var body: some View {
@@ -60,9 +60,9 @@ struct DirectExaminationView: View {
 
             Divider()
 
-            // Phase UI
+            // Direct / cross / redirect UI
             if step == 0 {
-                // Direct examination entry
+                // Direct Q&A
                 HStack {
                     TextField("Ask a question…", text: $questionText)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
@@ -78,28 +78,22 @@ struct DirectExaminationView: View {
                 .padding(.horizontal)
 
             } else if let q = pendingCrossQuestion {
-                // AI cross-examination question
+                // AI cross‑examination
                 Text(q)
                     .padding()
                     .multilineTextAlignment(.center)
 
                 HStack {
-                    Button("Object") {
-                        showObjectionInput = true
-                    }
-                    .buttonStyle(.bordered)
-
+                    Button("Object") { showObjectionInput = true }
+                        .buttonStyle(.bordered)
                     Spacer()
-
-                    Button("Proceed") {
-                        proceedCross()
-                    }
-                    .buttonStyle(.borderedProminent)
+                    Button("Proceed") { proceedCross() }
+                        .buttonStyle(.borderedProminent)
                 }
                 .padding(.horizontal)
 
             } else if step == 1 {
-                // Move to re-direct phase
+                // Move to Re‑Direct
                 Button("Proceed to Re‑Direct") {
                     step = 2
                 }
@@ -107,7 +101,7 @@ struct DirectExaminationView: View {
                 .padding(.horizontal)
 
             } else if step == 2 {
-                // Re-direct examination entry
+                // Redirect Q&A
                 HStack {
                     TextField("Ask re‑direct question…", text: $questionText)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
@@ -121,8 +115,8 @@ struct DirectExaminationView: View {
                 }
                 .padding(.horizontal)
 
-            } else if step == 3 {
-                // Finish with this witness
+            } else {
+                // Finish witness
                 Button("Finish with this Witness") {
                     nextWitness()
                 }
@@ -131,17 +125,15 @@ struct DirectExaminationView: View {
 
             Divider()
 
-            // End entire case
             Button("Finish Entire \(roleName) Case") {
                 finishCase()
             }
             .padding(.top, 4)
         }
-        // Objection input sheet
         .sheet(isPresented: $showObjectionInput) {
             NavigationView {
                 Form {
-                    Section(header: Text("Your Objection")) {
+                    Section("Your Objection") {
                         TextField("Why do you object?", text: $objectionText)
                     }
                 }
@@ -154,10 +146,8 @@ struct DirectExaminationView: View {
                         }
                     }
                     ToolbarItem(placement: .confirmationAction) {
-                        Button("Submit") {
-                            submitObjection()
-                        }
-                        .disabled(objectionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        Button("Submit") { submitObjection() }
+                            .disabled(objectionText.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
                 }
             }
@@ -182,11 +172,11 @@ struct DirectExaminationView: View {
     private func finishDirect() {
         step = 1
         askCross()
+        onPlanUpdate()  // update plan after direct
     }
 
     private func askCross() {
         guard let name = selected?.name else { return }
-        // Prevent infinite loop
         if askedCross.count >= crossQuestionLimit {
             record("Judge", "No further questions, your honor.")
             step = 2
@@ -195,7 +185,6 @@ struct DirectExaminationView: View {
         pendingCrossQuestion = nil
         gptCross(name, directSummary, askedCross) { aiQ in
             if let q = aiQ?.trimmingCharacters(in: .whitespacesAndNewlines), !q.isEmpty {
-                // Record AI counsel question
                 record(oppositeRole, q)
                 pendingCrossQuestion = q
             } else {
@@ -206,8 +195,7 @@ struct DirectExaminationView: View {
     }
 
     private func proceedCross() {
-        guard let q = pendingCrossQuestion,
-              let name = selected?.name else { return }
+        guard let q = pendingCrossQuestion, let name = selected?.name else { return }
         pendingCrossQuestion = nil
         askedCross.append(q)
         gptAnswer(name, q, directSummary) { ans in
@@ -230,6 +218,7 @@ struct DirectExaminationView: View {
 
     private func finishRedirect() {
         step = 3
+        onPlanUpdate()  // update plan after redirect
     }
 
     private func submitObjection() {
@@ -237,9 +226,8 @@ struct DirectExaminationView: View {
         record("Judge", "Objection (\(objectionText)).")
         let sustained = Bool.random()
         record("Judge", "Judge: \(sustained ? "Sustained" : "Overruled")")
-        let action = sustained ? askCross : proceedCross
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            action()
+            if sustained { askCross() } else { proceedCross() }
         }
         objectionText = ""
     }
@@ -257,6 +245,7 @@ struct DirectExaminationView: View {
         directSummary = ""
         askedCross = []
         step = 0
+        onPlanUpdate()  // update plan after each witness
     }
 
     // MARK: – Helpers

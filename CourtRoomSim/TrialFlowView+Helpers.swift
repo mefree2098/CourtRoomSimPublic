@@ -5,6 +5,9 @@ import Foundation
 import SwiftUI
 
 extension TrialFlowView {
+    // Compatibility alias for helpers
+    func advanceStage() { advanceStageAndPersist() }
+
     // MARK: – AI Opponent Opening/Closing Statements
 
     /// AI opponent responds with ONE concise (max 2 sentences) statement, then rests.
@@ -32,7 +35,7 @@ Case summary: \(caseEntity.details ?? "")
                 switch result {
                 case .success(let reply):
                     recordEvent(opp.name ?? "Opposing Counsel", reply)
-                    advanceStage()
+                    advanceStageAndPersist()
                 case .failure(let err):
                     errorMessage = err.localizedDescription
                 }

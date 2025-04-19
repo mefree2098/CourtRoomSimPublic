@@ -22,9 +22,8 @@ struct CharacterChatView: View {
         self.caseEntity = caseEntity
         self.character = character
         let predicate = NSPredicate(
-            format: "caseEntity.id == %@ AND courtCharacter.id == %@",
-            caseEntity.id! as CVarArg,
-            character.id! as CVarArg
+            format: "caseEntity == %@ AND courtCharacter == %@",
+            caseEntity, character
         )
         _messages = FetchRequest(
             entity: Conversation.entity(),
@@ -36,85 +35,20 @@ struct CharacterChatView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // Header with image, name, personality
-                HStack(spacing: 16) {
-                    if let data = character.imageData,
-                       let ui = UIImage(data: data) {
-                        Image(uiImage: ui)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 60, height: 60)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                    } else {
-                        Rectangle()
-                            .fill(Color.gray.opacity(0.3))
-                            .frame(width: 60, height: 60)
-                            .overlay(Text("No Image").font(.caption))
-                    }
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(character.name ?? "Character")
-                            .font(.headline)
-                        if let pers = character.personality, !pers.isEmpty {
-                            Text(pers)
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    Spacer()
-                }
-                .padding()
-
+                header
                 Divider()
-
-                // Chat history
-                ScrollViewReader { scroll in
-                    ScrollView {
-                        LazyVStack(spacing: 12) {
-                            ForEach(messages) { msg in
-                                ChatBubble(
-                                    message: msg,
-                                    isUser: msg.sender == UserProfileManager.shared.playerName
-                                )
-                                .id(msg.id)
-                                .padding(.horizontal)
-                            }
-                        }
-                        .padding(.top, 8)
-                    }
-                    .onChange(of: messages.count) { _ in
-                        if let last = messages.last {
-                            withAnimation {
-                                scroll.scrollTo(last.id, anchor: .bottom)
-                            }
-                        }
-                    }
-                }
-
+                chatHistory
                 if let err = errorMessage {
                     Text("Error: \(err)")
                         .foregroundColor(.red)
                         .padding(.horizontal)
                 }
-
                 if isLoading {
                     ProgressView("Waiting for response…")
                         .padding()
                 }
-
                 Divider()
-
-                // Input field & send
-                HStack {
-                    TextField("Type your message…", text: $userMessage)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .frame(minHeight: 40)
-                    Button("Send") {
-                        sendUserMessage()
-                    }
-                    .disabled(userMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .padding(.leading, 4)
-                }
-                .padding()
+                inputBar
             }
             .navigationTitle(character.name ?? "Chat")
             .navigationBarTitleDisplayMode(.inline)
@@ -136,7 +70,6 @@ struct CharacterChatView: View {
                 NotebookView(caseEntity: caseEntity)
                     .environment(\.managedObjectContext, viewContext)
             }
-            // Dismiss keyboard on any tap without blocking navigation
             .simultaneousGesture(
                 TapGesture().onEnded {
                     UIApplication.shared.sendAction(
@@ -149,12 +82,84 @@ struct CharacterChatView: View {
         .id("chat-\(caseEntity.id!.uuidString)-\(character.id!.uuidString)")
     }
 
+    // MARK: UI Components
+
+    private var header: some View {
+        HStack(spacing: 16) {
+            if let data = character.imageData,
+               let ui = UIImage(data: data) {
+                Image(uiImage: ui)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 60, height: 60)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            } else {
+                Rectangle()
+                    .fill(Color.gray.opacity(0.3))
+                    .frame(width: 60, height: 60)
+                    .overlay(Text("No Image").font(.caption))
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(character.name ?? "Character")
+                    .font(.headline)
+                if let pers = character.personality, !pers.isEmpty {
+                    Text(pers)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+            }
+            Spacer()
+        }
+        .padding()
+    }
+
+    private var chatHistory: some View {
+        ScrollViewReader { scroll in
+            ScrollView {
+                LazyVStack(spacing: 12) {
+                    ForEach(messages) { msg in
+                        ChatBubble(
+                            message: msg,
+                            isUser: msg.sender == UserProfileManager.shared.playerName
+                        )
+                        .id(msg.id)
+                        .padding(.horizontal)
+                    }
+                }
+                .padding(.top, 8)
+            }
+            .onChange(of: messages.count) { _ in
+                if let last = messages.last {
+                    withAnimation {
+                        scroll.scrollTo(last.id, anchor: .bottom)
+                    }
+                }
+            }
+        }
+    }
+
+    private var inputBar: some View {
+        HStack {
+            TextField("Type your message…", text: $userMessage)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .frame(minHeight: 40)
+            Button("Send") {
+                sendUserMessage()
+            }
+            .disabled(userMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .padding(.leading, 4)
+        }
+        .padding()
+    }
+
+    // MARK: Actions
+
     private func sendUserMessage() {
         let text = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         userMessage = ""
 
-        // Save user's message
+        // Save user message
         let userMsg = Conversation(context: viewContext)
         userMsg.id = UUID()
         userMsg.sender = UserProfileManager.shared.playerName
@@ -165,27 +170,31 @@ struct CharacterChatView: View {
         userMsg.courtCharacter = character
         try? viewContext.save()
 
-        // Send to AI
+        // Gather **full** appropriate context
+        let scenario = caseEntity.details ?? ""
+        let role = caseEntity.userRole ?? ""
+        // Fetch entire conversation for this phase
+        let convFetch: NSFetchRequest<Conversation> = Conversation.fetchRequest()
+        convFetch.predicate = NSPredicate(
+            format: "caseEntity == %@ AND phase == %@",
+            caseEntity,
+            caseEntity.phase ?? CasePhase.preTrial.rawValue
+        )
+        convFetch.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: true)]
+        let fullHistory = (try? viewContext.fetch(convFetch))?
+            .map { "\($0.sender ?? ""): \($0.message ?? "")" }
+            .joined(separator: "\n") ?? ""
+
         isLoading = true
         errorMessage = nil
 
-        let scenario = caseEntity.details ?? ""
-        let role = caseEntity.userRole ?? ""
-        let history = messages
-            .map { "\($0.sender): \($0.message ?? "")" }
-            .joined(separator: "\n")
         let systemPrompt = """
-        You are \(character.name ?? "Character").
-
+        You are \(character.name ?? "Character"), a participant in this case.
         Scenario: \(scenario)
-
         The user is the \(role).
-
+        Conversation so far (all parties):
+        \(fullHistory)
         Stay in character, no disclaimers.
-
-        Conversation so far:
-
-        \(history)
         """
 
         OpenAIHelper.shared.chatCompletion(
@@ -213,6 +222,8 @@ struct CharacterChatView: View {
         }
     }
 }
+
+// MARK: Chat Bubble
 
 struct ChatBubble: View {
     let message: Conversation

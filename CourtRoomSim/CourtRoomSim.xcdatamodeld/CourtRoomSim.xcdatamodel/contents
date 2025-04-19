@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="23788" systemVersion="24D60" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="AIPlan" representedClassName="AIPlan" syncable="YES" codeGenerationType="class">
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="lastUpdated" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="planText" optional="YES" attributeType="String"/>
+        <relationship name="caseEntity" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CaseEntity"/>
+    </entity>
     <entity name="CaseEntity" representedClassName="CaseEntity" syncable="YES" codeGenerationType="class">
         <attribute name="aiModel" optional="YES" attributeType="String"/>
         <attribute name="crimeType" optional="YES" attributeType="String"/>
@@ -8,6 +14,7 @@
         <attribute name="groundTruth" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
         <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
         <attribute name="phase" optional="YES" attributeType="String"/>
+        <attribute name="trialStage" optional="YES" attributeType="String"/>
         <attribute name="userRole" optional="YES" attributeType="String"/>
         <attribute name="verdict" optional="YES" attributeType="String"/>
         <relationship name="conversations" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Conversation" inverseName="caseEntity" inverseEntity="Conversation"/>
