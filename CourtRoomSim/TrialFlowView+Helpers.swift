@@ -3,27 +3,41 @@
 
 import Foundation
 import SwiftUI
+import CoreData
 
 extension TrialFlowView {
-    // Compatibility alias for helpers
+    // Alias for backward compatibility
     func advanceStage() { advanceStageAndPersist() }
 
     // MARK: – AI Opponent Opening/Closing Statements
 
-    /// AI opponent responds with ONE concise (max 2 sentences) statement, then rests.
     func gptOpponentStatement(userText: String) {
         guard let opp = caseEntity.opposingCounsel else { return }
         let apiKey = UserDefaults.standard.string(forKey: "openAIKey") ?? ""
         guard !apiKey.isEmpty else { return }
 
         isLoading = true
+
+        // Full trial transcript
+        let transcript = trialEvents
+            .map { "\($0.speaker): \($0.message)" }
+            .joined(separator: "\n")
+
+        // Latest AI plan
+        let planFetch: NSFetchRequest<AIPlan> = AIPlan.fetchRequest()
+        planFetch.predicate = NSPredicate(format: "caseEntity == %@", caseEntity)
+        let planText = (try? viewContext.fetch(planFetch))?.first?.planText ?? ""
+
         let systemPrompt = """
-You are \(opp.name ?? "Opposing Counsel"), the \(opp.role ?? "Counsel") in a United States criminal court under the supervision of the presiding judge. Provide exactly ONE concise courtroom statement (no more than two sentences) in response to the opposing counsel. Once finished, explicitly say “I rest my case.”
-"""
-        let userPrompt = """
-Opponent said: "\(userText)"
-Case summary: \(caseEntity.details ?? "")
-"""
+        You are \(opp.name ?? "Opposing Counsel"), the \
+        \(isUserProsecutor ? "Defense Counsel" : "Prosecuting Counsel") in a US criminal court.
+        Case summary: \(caseEntity.details ?? "")
+        AI plan so far: \(planText)
+        Trial transcript so far:
+        \(transcript)
+        Respond exactly once (≤2 sentences), then say “I rest my case.”
+        """
+        let userPrompt = "Opponent statement request after: \"\(userText)\""
 
         OpenAIHelper.shared.chatCompletion(
             model: caseEntity.aiModel ?? AiModel.o4Mini.rawValue,
@@ -31,7 +45,7 @@ Case summary: \(caseEntity.details ?? "")
             user: userPrompt
         ) { result in
             DispatchQueue.main.async {
-                self.isLoading = false
+                isLoading = false
                 switch result {
                 case .success(let reply):
                     recordEvent(opp.name ?? "Opposing Counsel", reply)
@@ -45,38 +59,66 @@ Case summary: \(caseEntity.details ?? "")
 
     // MARK: – AI Witness Answer
 
-    /// In‑character witness answer callback.
     func gptWitnessAnswer(
-        _ witness: String,
-        _ question: String,
+        _ witnessName: String,
+        _ _question: String,
         _ context: String,
         _ onReply: @escaping (String) -> Void
     ) {
         let apiKey = UserDefaults.standard.string(forKey: "openAIKey") ?? ""
         guard !apiKey.isEmpty else {
-            onReply("No API key")
-            return
+            onReply("No API key"); return
         }
 
         isLoading = true
-        let systemPrompt = "You are \(witness), answering in first person, no AI references, fully addressing the question based on all prior context."
-        let userPrompt = """
-Context: \(context)
-Q: "\(question)"
-"""
+
+        // Identify the character entity for additional context
+        let allChars = ([caseEntity.victim] +
+                        (caseEntity.witnesses as? [CourtCharacter] ?? []) +
+                        (caseEntity.police as? [CourtCharacter] ?? []) +
+                        [caseEntity.suspect, caseEntity.opposingCounsel]).compactMap { $0 }
+        let charEnt = allChars.first(where: { $0.name == witnessName })
+
+        let personality = charEnt?.personality ?? ""
+        let background  = charEnt?.background  ?? ""
+        let roleDesc    = charEnt?.role        ?? ""
+
+        // Pre‑trial conversation
+        let convFetch: NSFetchRequest<Conversation> = Conversation.fetchRequest()
+        convFetch.predicate = NSPredicate(
+            format: "caseEntity == %@ AND phase == %@",
+            caseEntity, CasePhase.preTrial.rawValue
+        )
+        convFetch.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: true)]
+        let preHistory = (try? viewContext.fetch(convFetch))?
+            .map { "\($0.sender ?? ""): \($0.message ?? "")" }
+            .joined(separator: "\n") ?? ""
+
+        // Trial transcript
+        let transcript = trialEvents
+            .map { "\($0.speaker): \($0.message)" }
+            .joined(separator: "\n")
+
+        let systemPrompt = """
+        You are \(witnessName), \(roleDesc). Personality: \(personality). Background: \(background).
+        Case summary: \(caseEntity.details ?? "")
+        Pre‑trial conversation:
+        \(preHistory)
+        Trial transcript so far:
+        \(transcript)
+        Answer the question in first person, fully addressing it.
+        """
 
         OpenAIHelper.shared.chatCompletion(
             model: caseEntity.aiModel ?? AiModel.o4Mini.rawValue,
             system: systemPrompt,
-            user: userPrompt
+            user: _question
         ) { result in
             DispatchQueue.main.async {
-                self.isLoading = false
+                isLoading = false
                 switch result {
-                case .success(let text):
-                    onReply(text)
-                case .failure:
-                    onReply("…")
+                case .success(let text): onReply(text)
+                case .failure:          onReply("…")
                 }
             }
         }
@@ -84,54 +126,52 @@ Q: "\(question)"
 
     // MARK: – AI Opponent Cross‑Exam
 
-    /// AI opponent asks exactly ONE concise question per call, no repeats.
     func gptOpponentCrossExam(
         _ witness: String,
-        _ context: String,
+        _ _context: String,
         _ askedSoFar: [String],
         _ onNewQuestion: @escaping (String?) -> Void
     ) {
         guard let opp = caseEntity.opposingCounsel else {
-            onNewQuestion(nil)
-            return
+            onNewQuestion(nil); return
         }
         let apiKey = UserDefaults.standard.string(forKey: "openAIKey") ?? ""
         guard !apiKey.isEmpty else {
-            onNewQuestion(nil)
-            return
+            onNewQuestion(nil); return
         }
 
         isLoading = true
-        // Determine AI role opposite of user selection
-        let userRole = caseEntity.userRole ?? ""
-        let aiRoleName: String
-        if userRole.lowercased().contains("prosecutor") {
-            aiRoleName = "Defense Counsel"
-        } else {
-            aiRoleName = "Prosecuting Counsel"
-        }
+
+        let transcript = trialEvents
+            .map { "\($0.speaker): \($0.message)" }
+            .joined(separator: "\n")
+        let planText = (try? viewContext.fetch(
+            NSFetchRequest<AIPlan>(entityName: "AIPlan")
+        ))?.first?.planText ?? ""
+        let aiRole = isUserProsecutor ? "Defense Counsel" : "Prosecuting Counsel"
 
         let systemPrompt = """
-You are \(opp.name ?? "Opposing Counsel"), the \(aiRoleName) in a United States criminal court under the supervision of the presiding judge. Under the judge’s supervision, ask exactly ONE concise cross‑examination question (no repeats). Do NOT bundle multiple questions.
-"""
-        let userPrompt = """
-Already asked: \(askedSoFar.joined(separator: " | "))
-Witness: \(witness)
-Context: \(context)
-"""
+        You are \(opp.name ?? "Opposing Counsel"), the \(aiRole).
+        Case summary: \(caseEntity.details ?? "")
+        AI plan so far: \(planText)
+        Trial transcript so far:
+        \(transcript)
+        Already asked: \(askedSoFar.joined(separator: " | "))
+        Ask one concise cross‑exam question (no repeats).
+        """
 
         OpenAIHelper.shared.chatCompletion(
             model: caseEntity.aiModel ?? AiModel.o4Mini.rawValue,
             system: systemPrompt,
-            user: userPrompt
+            user: ""
         ) { result in
             DispatchQueue.main.async {
-                self.isLoading = false
+                isLoading = false
                 switch result {
-                case .success(let question):
-                    let clean = question.trimmingCharacters(in: .whitespacesAndNewlines)
+                case .success(let q):
+                    let clean = q.trimmingCharacters(in: .whitespacesAndNewlines)
                     if askedSoFar.contains(where: { $0.caseInsensitiveCompare(clean) == .orderedSame }) {
-                        recordEvent("Judge", "Counsel, please move on to a different question.")
+                        recordEvent("Judge", "Counsel, please move on.")
                         onNewQuestion(nil)
                     } else {
                         onNewQuestion(clean)

@@ -170,10 +170,10 @@ struct CharacterChatView: View {
         userMsg.courtCharacter = character
         try? viewContext.save()
 
-        // Gather **full** appropriate context
+        // Build full context
         let scenario = caseEntity.details ?? ""
         let role = caseEntity.userRole ?? ""
-        // Fetch entire conversation for this phase
+
         let convFetch: NSFetchRequest<Conversation> = Conversation.fetchRequest()
         convFetch.predicate = NSPredicate(
             format: "caseEntity == %@ AND phase == %@",
@@ -185,17 +185,24 @@ struct CharacterChatView: View {
             .map { "\($0.sender ?? ""): \($0.message ?? "")" }
             .joined(separator: "\n") ?? ""
 
-        isLoading = true
-        errorMessage = nil
+        let name = character.name ?? "Character"
+        let personality = character.personality ?? ""
+        let background = character.background ?? ""
+        let roleDesc = character.role ?? ""
 
         let systemPrompt = """
-        You are \(character.name ?? "Character"), a participant in this case.
+        You are \(name), \(roleDesc).
+        Personality: \(personality)
+        Background: \(background)
         Scenario: \(scenario)
         The user is the \(role).
-        Conversation so far (all parties):
+        Conversation so far:
         \(fullHistory)
-        Stay in character, no disclaimers.
+        Stay in character and respond based on all context.
         """
+
+        isLoading = true
+        errorMessage = nil
 
         OpenAIHelper.shared.chatCompletion(
             model: caseEntity.aiModel ?? AiModel.o4Mini.rawValue,
@@ -208,7 +215,7 @@ struct CharacterChatView: View {
                 case .success(let reply):
                     let aiMsg = Conversation(context: viewContext)
                     aiMsg.id = UUID()
-                    aiMsg.sender = character.name
+                    aiMsg.sender = name
                     aiMsg.message = reply
                     aiMsg.timestamp = Date()
                     aiMsg.phase = caseEntity.phase ?? CasePhase.preTrial.rawValue
@@ -222,8 +229,6 @@ struct CharacterChatView: View {
         }
     }
 }
-
-// MARK: Chat Bubble
 
 struct ChatBubble: View {
     let message: Conversation

@@ -24,7 +24,8 @@ struct TrialFlowView: View {
     @Environment(\.managedObjectContext) var viewContext
     @Environment(\.dismiss) var dismiss
 
-    @FetchRequest private var trialEvents: FetchedResults<TrialEvent>
+    @FetchRequest
+    var trialEvents: FetchedResults<TrialEvent>  // internal access for helpers
 
     @State var currentStage: TrialStage
     @State private var currentSpeaker: String = "Prosecution"
@@ -121,7 +122,7 @@ struct TrialFlowView: View {
                         AiCounselView(
                             roleName: "Defense (AI)",
                             caseEntity: caseEntity,
-                            recordTranscript: recordEvent,
+                            recordTranscript: recordEvent,    // fixed: use recordEvent instead of trialEvents
                             gptWitnessAnswer: gptWitnessAnswer,
                             onFinishCase: advanceStageAndPersist
                         )
@@ -231,14 +232,14 @@ struct TrialFlowView: View {
         if caseEntity.judge == nil {
             let judge = CourtCharacter(context: viewContext)
             judge.id = UUID()
-            judge.name = "Judge " + ["Summerton", "Hawkins", "Delgado", "Price"].randomElement()!
-            judge.personality = ["Fair‑minded", "Strict", "Patient"].randomElement()!
+            judge.name = "Judge " + ["Summerton","Hawkins","Delgado","Price"].randomElement()!
+            judge.personality = ["Fair‑minded","Strict","Patient"].randomElement()!
             judge.background = "Seasoned jurist respected for balanced rulings."
             caseEntity.judge = judge
         }
-        let existingJury = caseEntity.jury as? Set<CourtCharacter> ?? []
-        if existingJury.count < 12 {
-            for i in existingJury.count..<12 {
+        let existing = caseEntity.jury as? Set<CourtCharacter> ?? []
+        if existing.count < 12 {
+            for i in existing.count..<12 {
                 let juror = CourtCharacter(context: viewContext)
                 juror.id = UUID()
                 juror.name = "Juror #\(i+1)"
@@ -252,41 +253,34 @@ struct TrialFlowView: View {
 
     func buildPlan() {
         guard let opp = caseEntity.opposingCounsel else { return }
-        // Fetch existing plan if any
-        let planFetch: NSFetchRequest<AIPlan> = AIPlan.fetchRequest()
-        planFetch.predicate = NSPredicate(format: "caseEntity == %@", caseEntity)
-        let existingPlan = (try? viewContext.fetch(planFetch))?.first
-        
-        // Set overlay text
-        if existingPlan == nil {
-            planOverlayText = "Opposing Counsel building their case…"
-        } else {
-            planOverlayText = "Opposing Counsel updating their case…"
-        }
+        let existingPlan = (try? viewContext.fetch(
+            NSFetchRequest<AIPlan>(entityName: "AIPlan")
+        ))?.first
+        planOverlayText = existingPlan == nil
+            ? "Opposing Counsel building their case…"
+            : "Opposing Counsel updating their case…"
         isBuildingPlan = true
 
-        // Gather pre‑trial transcript
         let convFetch: NSFetchRequest<Conversation> = Conversation.fetchRequest()
         convFetch.predicate = NSPredicate(
             format: "caseEntity == %@ AND phase == %@",
-            caseEntity,
-            CasePhase.preTrial.rawValue
+            caseEntity, CasePhase.preTrial.rawValue
         )
         convFetch.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: true)]
-        let history = (try? viewContext.fetch(convFetch))?
+        let preHistory = (try? viewContext.fetch(convFetch))?
             .map { "\($0.sender ?? ""): \($0.message ?? "")" }
             .joined(separator: "\n") ?? ""
 
         let evidence = caseEntity.details ?? ""
-        let priorPlan = existingPlan?.planText ?? ""
-
+        let planText = existingPlan?.planText ?? ""
         let systemPrompt = """
-You are \(opp.name ?? "Opposing Counsel"), the \
-\(isUserProsecutor ? "Defense Counsel" : "Prosecuting Counsel") in a US criminal court. \
-Based on evidence: \(evidence) \
-and prior transcript: \(history) \
-and existing plan: \(priorPlan), update your concise strategic plan.
-"""
+        You are \(opp.name ?? "Opposing Counsel"), the \
+        \(isUserProsecutor ? "Defense Counsel" : "Prosecuting Counsel") in a US criminal court.
+        Based on evidence: \(evidence),
+        prior transcript: \(preHistory),
+        and existing plan: \(planText),
+        update your concise strategic plan.
+        """
 
         OpenAIHelper.shared.chatCompletion(
             model: caseEntity.aiModel ?? AiModel.o4Mini.rawValue,
@@ -296,14 +290,13 @@ and existing plan: \(priorPlan), update your concise strategic plan.
             DispatchQueue.main.async {
                 isBuildingPlan = false
                 switch result {
-                case .success(let planText):
+                case .success(let text):
                     let planEnt = existingPlan ?? AIPlan(context: viewContext)
                     planEnt.id = planEnt.id ?? UUID()
-                    planEnt.planText = planText
+                    planEnt.planText = text
                     planEnt.lastUpdated = Date()
                     planEnt.caseEntity = caseEntity
                     try? viewContext.save()
-
                 case .failure(let err):
                     errorMessage = err.localizedDescription
                 }
