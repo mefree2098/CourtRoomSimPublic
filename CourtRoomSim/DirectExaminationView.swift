@@ -1,5 +1,4 @@
-// DirectExaminationView.swift
-// CourtRoomSim
+// CourtRoomSim/Views/DirectExaminationView.swift
 
 import SwiftUI
 import CoreData
@@ -30,6 +29,8 @@ struct DirectExaminationView: View {
     @State private var askedCross: [String] = []
     @State private var askedFirst = false
     @State private var pendingCrossQuestion: String? = nil
+
+    // Manual objection sheet
     @State private var showObjectionInput = false
     @State private var objectionText = ""
 
@@ -78,15 +79,19 @@ struct DirectExaminationView: View {
                 .padding(.horizontal)
 
             } else if let q = pendingCrossQuestion {
-                // AI cross‑examination
+                // AI cross‑examination prompt
                 Text(q)
                     .padding()
                     .multilineTextAlignment(.center)
 
                 HStack {
-                    Button("Object") { showObjectionInput = true }
-                        .buttonStyle(.bordered)
+                    Button("Object") {
+                        showObjectionInput = true
+                    }
+                    .buttonStyle(.bordered)
+
                     Spacer()
+
                     Button("Proceed") { proceedCross() }
                         .buttonStyle(.borderedProminent)
                 }
@@ -163,16 +168,114 @@ struct DirectExaminationView: View {
         askedFirst = true
         record(roleName, "Q(\(name)): \(q)")
         questionText = ""
-        gptAnswer(name, q, directSummary) { ans in
+        isLoading = true
+
+        print("📝 [Direct] Starting objection flow for question: \"\(q)\"")
+
+        OpenAIService.shared.requestObjectionResponse(question: q) { objResult in
+            DispatchQueue.main.async {
+                switch objResult {
+                case .success(let obj):
+                    print("📝 [Direct] ObjectionResponse: objection=\(obj.objection), reason=\(obj.reason ?? "nil")")
+                    if obj.objection {
+                        // Record counsel's objection
+                        record(oppositeRole, "Objection: \(obj.reason ?? "")")
+                        print("📝 [Direct] Objection recorded: \(obj.reason ?? "")")
+
+                        // Ask judge to rule
+                        OpenAIService.shared.requestJudgeDecision(reason: obj.reason ?? "") { judgeResult in
+                            DispatchQueue.main.async {
+                                isLoading = false
+                                switch judgeResult {
+                                case .success(let jd):
+                                    print("📝 [Direct] JudgeDecision: \(jd.decision)")
+                                    if jd.decision.lowercased() == "sustain" {
+                                        record("Judge", "Objection sustained.")
+                                    } else {
+                                        performWitnessCall(name: name, question: q)
+                                    }
+                                case .failure(let err):
+                                    print("📝 [Direct] Judge API error: \(err)")
+                                    performWitnessCall(name: name, question: q)
+                                }
+                            }
+                        }
+                    } else {
+                        print("📝 [Direct] No objection → calling witness")
+                        isLoading = false
+                        performWitnessCall(name: name, question: q)
+                    }
+                case .failure(let err):
+                    print("📝 [Direct] Objection API error: \(err)")
+                    isLoading = false
+                    performWitnessCall(name: name, question: q)
+                }
+            }
+        }
+    }
+
+    private func askRedirect() {
+        guard let w = selected, let name = w.name else { return }
+        let q = questionText.trimmingCharacters(in: .whitespaces)
+        record(roleName, "Q(\(name)): \(q)")
+        questionText = ""
+        isLoading = true
+
+        print("📝 [Direct] Starting objection flow for redirect question: \"\(q)\"")
+
+        OpenAIService.shared.requestObjectionResponse(question: q) { objResult in
+            DispatchQueue.main.async {
+                switch objResult {
+                case .success(let obj):
+                    print("📝 [Direct] ObjectionResponse: objection=\(obj.objection), reason=\(obj.reason ?? "nil")")
+                    if obj.objection {
+                        // Record counsel's objection
+                        record(oppositeRole, "Objection: \(obj.reason ?? "")")
+                        print("📝 [Direct] Objection recorded: \(obj.reason ?? "")")
+
+                        // Ask judge to rule
+                        OpenAIService.shared.requestJudgeDecision(reason: obj.reason ?? "") { judgeResult in
+                            DispatchQueue.main.async {
+                                isLoading = false
+                                switch judgeResult {
+                                case .success(let jd):
+                                    print("📝 [Direct] JudgeDecision: \(jd.decision)")
+                                    if jd.decision.lowercased() == "sustain" {
+                                        record("Judge", "Objection sustained.")
+                                    } else {
+                                        performWitnessCall(name: name, question: q)
+                                    }
+                                case .failure(let err):
+                                    print("📝 [Direct] Judge API error: \(err)")
+                                    performWitnessCall(name: name, question: q)
+                                }
+                            }
+                        }
+                    } else {
+                        print("📝 [Direct] No objection → calling witness")
+                        isLoading = false
+                        performWitnessCall(name: name, question: q)
+                    }
+                case .failure(let err):
+                    print("📝 [Direct] Objection API error: \(err)")
+                    isLoading = false
+                    performWitnessCall(name: name, question: q)
+                }
+            }
+        }
+    }
+
+    private func performWitnessCall(name: String, question: String) {
+        gptAnswer(name, question, directSummary) { ans in
             record(name, ans)
-            directSummary += "Q: \(q)\nA: \(ans)\n"
+            directSummary += "Q: \(question)\nA: \(ans)\n"
         }
     }
 
     private func finishDirect() {
         step = 1
         askCross()
-        onPlanUpdate()  // update plan after direct
+        onPlanUpdate()
     }
 
     private func askCross() {
@@ -205,20 +308,9 @@ struct DirectExaminationView: View {
         }
     }
 
-    private func askRedirect() {
-        guard let w = selected, let name = w.name else { return }
-        let q = questionText.trimmingCharacters(in: .whitespaces)
-        record(roleName, "Q(\(name)): \(q)")
-        questionText = ""
-        gptAnswer(name, q, directSummary) { ans in
-            record(name, ans)
-            directSummary += "Q: \(q)\nA: \(ans)\n"
-        }
-    }
-
     private func finishRedirect() {
         step = 3
-        onPlanUpdate()  // update plan after redirect
+        onPlanUpdate()
     }
 
     private func submitObjection() {
@@ -245,7 +337,7 @@ struct DirectExaminationView: View {
         directSummary = ""
         askedCross = []
         step = 0
-        onPlanUpdate()  // update plan after each witness
+        onPlanUpdate()
     }
 
     // MARK: – Helpers
