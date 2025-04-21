@@ -2,6 +2,9 @@
 
 import SwiftUI
 import CoreData
+import os
+
+private let directLogger = Logger(subsystem: "com.pura.CourtRoomSim", category: "DirectExaminationView")
 
 struct DirectExaminationView: View {
     // MARK: – Dependencies
@@ -61,9 +64,8 @@ struct DirectExaminationView: View {
 
             Divider()
 
-            // Direct / cross / redirect UI
+            // Direct / cross / redirect UI…
             if step == 0 {
-                // Direct Q&A
                 HStack {
                     TextField("Ask a question…", text: $questionText)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
@@ -77,36 +79,27 @@ struct DirectExaminationView: View {
                 }
                 .disabled(selected == nil)
                 .padding(.horizontal)
-
-            } else if let q = pendingCrossQuestion {
-                // AI cross‑examination prompt
+            }
+            else if let q = pendingCrossQuestion {
                 Text(q)
                     .padding()
                     .multilineTextAlignment(.center)
 
                 HStack {
-                    Button("Object") {
-                        showObjectionInput = true
-                    }
-                    .buttonStyle(.bordered)
-
+                    Button("Object") { showObjectionInput = true }
+                        .buttonStyle(.bordered)
                     Spacer()
-
                     Button("Proceed") { proceedCross() }
                         .buttonStyle(.borderedProminent)
                 }
                 .padding(.horizontal)
-
-            } else if step == 1 {
-                // Move to Re‑Direct
-                Button("Proceed to Re‑Direct") {
-                    step = 2
-                }
-                .disabled(isLoading)
-                .padding(.horizontal)
-
-            } else if step == 2 {
-                // Redirect Q&A
+            }
+            else if step == 1 {
+                Button("Proceed to Re‑Direct") { step = 2 }
+                    .disabled(isLoading)
+                    .padding(.horizontal)
+            }
+            else if step == 2 {
                 HStack {
                     TextField("Ask re‑direct question…", text: $questionText)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
@@ -114,26 +107,18 @@ struct DirectExaminationView: View {
                         .disabled(questionText.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
                 .padding(.horizontal)
-
-                Button("Done with Re‑Direct") {
-                    finishRedirect()
-                }
-                .padding(.horizontal)
-
-            } else {
-                // Finish witness
-                Button("Finish with this Witness") {
-                    nextWitness()
-                }
-                .padding(.horizontal)
+                Button("Done with Re‑Direct") { finishRedirect() }
+                    .padding(.horizontal)
+            }
+            else {
+                Button("Finish with this Witness") { nextWitness() }
+                    .padding(.horizontal)
             }
 
             Divider()
 
-            Button("Finish Entire \(roleName) Case") {
-                finishCase()
-            }
-            .padding(.top, 4)
+            Button("Finish Entire \(roleName) Case") { finishCase() }
+                .padding(.top, 4)
         }
         .sheet(isPresented: $showObjectionInput) {
             NavigationView {
@@ -170,43 +155,40 @@ struct DirectExaminationView: View {
         questionText = ""
         isLoading = true
 
-        print("📝 [Direct] Starting objection flow for question: \"\(q)\"")
+        directLogger.debug("Starting objection flow for: \(q, privacy: .public)")
 
         OpenAIService.shared.requestObjectionResponse(question: q) { objResult in
             DispatchQueue.main.async {
                 switch objResult {
                 case .success(let obj):
-                    print("📝 [Direct] ObjectionResponse: objection=\(obj.objection), reason=\(obj.reason ?? "nil")")
+                    directLogger.debug("ObjectionResponse: \(obj.objection), reason: \(obj.reason ?? "nil", privacy: .public)")
                     if obj.objection {
-                        // Record counsel's objection
                         record(oppositeRole, "Objection: \(obj.reason ?? "")")
-                        print("📝 [Direct] Objection recorded: \(obj.reason ?? "")")
-
-                        // Ask judge to rule
+                        directLogger.debug("Recorded objection reason: \(obj.reason ?? "nil", privacy: .public)")
                         OpenAIService.shared.requestJudgeDecision(reason: obj.reason ?? "") { judgeResult in
                             DispatchQueue.main.async {
                                 isLoading = false
                                 switch judgeResult {
                                 case .success(let jd):
-                                    print("📝 [Direct] JudgeDecision: \(jd.decision)")
+                                    directLogger.debug("JudgeDecision: \(jd.decision, privacy: .public)")
                                     if jd.decision.lowercased() == "sustain" {
                                         record("Judge", "Objection sustained.")
                                     } else {
                                         performWitnessCall(name: name, question: q)
                                     }
                                 case .failure(let err):
-                                    print("📝 [Direct] Judge API error: \(err)")
+                                    directLogger.error("Judge API error: \(err.localizedDescription)")
                                     performWitnessCall(name: name, question: q)
                                 }
                             }
                         }
                     } else {
-                        print("📝 [Direct] No objection → calling witness")
+                        directLogger.debug("No objection → calling witness")
                         isLoading = false
                         performWitnessCall(name: name, question: q)
                     }
                 case .failure(let err):
-                    print("📝 [Direct] Objection API error: \(err)")
+                    directLogger.error("Objection API error: \(err.localizedDescription)")
                     isLoading = false
                     performWitnessCall(name: name, question: q)
                 }
@@ -221,43 +203,40 @@ struct DirectExaminationView: View {
         questionText = ""
         isLoading = true
 
-        print("📝 [Direct] Starting objection flow for redirect question: \"\(q)\"")
+        directLogger.debug("Starting redirect objection flow for: \(q, privacy: .public)")
 
         OpenAIService.shared.requestObjectionResponse(question: q) { objResult in
             DispatchQueue.main.async {
                 switch objResult {
                 case .success(let obj):
-                    print("📝 [Direct] ObjectionResponse: objection=\(obj.objection), reason=\(obj.reason ?? "nil")")
+                    directLogger.debug("ObjectionResponse: \(obj.objection), reason: \(obj.reason ?? "nil", privacy: .public)")
                     if obj.objection {
-                        // Record counsel's objection
                         record(oppositeRole, "Objection: \(obj.reason ?? "")")
-                        print("📝 [Direct] Objection recorded: \(obj.reason ?? "")")
-
-                        // Ask judge to rule
+                        directLogger.debug("Recorded objection reason: \(obj.reason ?? "nil", privacy: .public)")
                         OpenAIService.shared.requestJudgeDecision(reason: obj.reason ?? "") { judgeResult in
                             DispatchQueue.main.async {
                                 isLoading = false
                                 switch judgeResult {
                                 case .success(let jd):
-                                    print("📝 [Direct] JudgeDecision: \(jd.decision)")
+                                    directLogger.debug("JudgeDecision: \(jd.decision, privacy: .public)")
                                     if jd.decision.lowercased() == "sustain" {
                                         record("Judge", "Objection sustained.")
                                     } else {
                                         performWitnessCall(name: name, question: q)
                                     }
                                 case .failure(let err):
-                                    print("📝 [Direct] Judge API error: \(err)")
+                                    directLogger.error("Judge API error: \(err.localizedDescription)")
                                     performWitnessCall(name: name, question: q)
                                 }
                             }
                         }
                     } else {
-                        print("📝 [Direct] No objection → calling witness")
+                        directLogger.debug("No objection → calling witness")
                         isLoading = false
                         performWitnessCall(name: name, question: q)
                     }
                 case .failure(let err):
-                    print("📝 [Direct] Objection API error: \(err)")
+                    directLogger.error("Objection API error: \(err.localizedDescription)")
                     isLoading = false
                     performWitnessCall(name: name, question: q)
                 }

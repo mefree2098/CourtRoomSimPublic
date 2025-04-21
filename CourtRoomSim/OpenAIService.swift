@@ -2,6 +2,9 @@
 
 import Foundation
 import UIKit
+import os
+
+private let serviceLogger = Logger(subsystem: "com.pura.CourtRoomSim", category: "OpenAIService")
 
 enum APIError: Error, LocalizedError {
     case noData
@@ -20,8 +23,7 @@ enum APIError: Error, LocalizedError {
     }
 }
 
-// MARK: – Models for Reciprocal Objections
-
+// Models for Reciprocal Objections
 struct ObjectionResponse: Codable {
     let objection: Bool
     let reason: String?
@@ -37,7 +39,7 @@ final class OpenAIService {
 
     private let maxRetryAttempts = 2
 
-    // MARK: – Text Generation
+    // MARK: – Core Chat Call
 
     func generateText(prompt: String,
                       maxTokens: Int = 300,
@@ -52,24 +54,23 @@ final class OpenAIService {
                                           maxTokens: Int,
                                           retryCount: Int,
                                           completion: @escaping (Result<String, Error>) -> Void) {
-        // 1) Retrieve API key (Keychain first, then UserDefaults fallback)
+        // Retrieve API key (Keychain first, then UserDefaults)
         let apiKey: String
         do {
             apiKey = try KeychainManager.shared.retrieveAPIKey()
-            print("🔑 [OpenAIService] Retrieved API key from Keychain.")
+            serviceLogger.debug("Retrieved API key from Keychain.")
         } catch {
             if let fallback = UserDefaults.standard.string(forKey: "openAIKey"),
                !fallback.isEmpty {
                 apiKey = fallback
-                print("🔑 [OpenAIService] Using API key from UserDefaults fallback.")
+                serviceLogger.debug("Using API key from UserDefaults fallback.")
             } else {
-                print("🔑 [OpenAIService] No API key found in Keychain or UserDefaults.")
+                serviceLogger.error("No API key found in Keychain or UserDefaults.")
                 completion(.failure(APIError.noAPIKey))
                 return
             }
         }
 
-        // 2) Build request
         guard let url = URL(string: "https://api.openai.com/v1/chat/completions") else {
             completion(.failure(APIError.invalidResponse))
             return
@@ -95,33 +96,33 @@ final class OpenAIService {
             return
         }
 
-        // 3) Send with retry
         URLSession.shared.dataTask(with: request) { data, response, error in
-            // Log HTTP status and raw response
             if let httpRes = response as? HTTPURLResponse {
-                print("🌐 [OpenAIService] HTTP status: \(httpRes.statusCode)")
+                serviceLogger.debug("HTTP status: \(httpRes.statusCode)")
             }
-            if let data = data, let raw = String(data: data, encoding: .utf8) {
-                print("🌐 [OpenAIService] Raw response body:\n\(raw)")
+            if let raw = data.flatMap({ String(data: $0, encoding: .utf8) }) {
+                serviceLogger.debug("Raw response body: \(raw)")
             }
 
-            if let error = error as NSError?,
-               error.domain == NSURLErrorDomain,
-               error.code == NSURLErrorNetworkConnectionLost,
+            if let err = error as NSError?,
+               err.domain == NSURLErrorDomain,
+               err.code == NSURLErrorNetworkConnectionLost,
                retryCount < self.maxRetryAttempts {
-                return self.generateChatTextInternal(prompt: prompt,
-                                                     maxTokens: maxTokens,
-                                                     retryCount: retryCount + 1,
-                                                     completion: completion)
-            } else if let error = error {
-                return completion(.failure(error))
+                self.generateChatTextInternal(prompt: prompt,
+                                              maxTokens: maxTokens,
+                                              retryCount: retryCount + 1,
+                                              completion: completion)
+                return
+            } else if let err = error {
+                completion(.failure(err))
+                return
             }
 
             guard let data = data else {
-                return completion(.failure(APIError.noData))
+                completion(.failure(APIError.noData))
+                return
             }
 
-            // 4) Parse and return
             do {
                 guard
                     let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -130,7 +131,8 @@ final class OpenAIService {
                     let msg = first["message"] as? [String: Any],
                     let text = msg["content"] as? String
                 else {
-                    return completion(.failure(APIError.invalidResponse))
+                    completion(.failure(APIError.invalidResponse))
+                    return
                 }
                 completion(.success(text))
             } catch {
@@ -141,12 +143,10 @@ final class OpenAIService {
 
     // MARK: – Reciprocal Objections
 
-    /// Ask the opposing counsel whether to object, stripping code fences.
     func requestObjectionResponse(question: String,
                                   completion: @escaping (Result<ObjectionResponse, Error>) -> Void) {
         let prompt = """
-        You are opposing counsel in a US criminal courtroom. Under US Federal Rules of Evidence (relevance, hearsay, leading, argumentative, speculation), \
-        evaluate this question for objection:
+        You are opposing counsel in a US criminal courtroom. Under US Federal Rules of Evidence (relevance, hearsay, leading, argumentative, speculation), evaluate this question for objection:
 
         Question: "\(question)"
 
@@ -154,52 +154,50 @@ final class OpenAIService {
         {"objection": true, "reason": "<legal ground>"}
         {"objection": false, "reason": null}
         """
+        serviceLogger.debug("Objection prompt: \(prompt, privacy: .public)")
         generateText(prompt: prompt) { result in
             switch result {
             case .success(let rawText):
-                print("🔍 [Objection] Raw text:\n\(rawText)")
-                // Remove code fences if present
+                serviceLogger.debug("Raw objection response: \(rawText, privacy: .public)")
                 var cleaned = rawText
                     .replacingOccurrences(of: "```json", with: "")
                     .replacingOccurrences(of: "```", with: "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                // Sometimes model includes surrounding quotes
                 if cleaned.hasPrefix("\""), cleaned.hasSuffix("\"") {
                     cleaned = String(cleaned.dropFirst().dropLast())
                 }
-                print("🔍 [Objection] Cleaned JSON:\n\(cleaned)")
+                serviceLogger.debug("Cleaned objection JSON: \(cleaned, privacy: .public)")
                 guard let data = cleaned.data(using: .utf8) else {
                     completion(.failure(APIError.invalidResponse))
                     return
                 }
                 do {
                     let resp = try JSONDecoder().decode(ObjectionResponse.self, from: data)
-                    print("🔍 [Objection] Parsed objection=\(resp.objection), reason=\(resp.reason ?? "nil")")
+                    serviceLogger.debug("Parsed objection=\(resp.objection), reason=\(resp.reason ?? "nil")")
                     completion(.success(resp))
                 } catch {
-                    print("🔍 [Objection] JSON decode error: \(error)")
+                    serviceLogger.error("Objection JSON decode error: \(error.localizedDescription)")
                     completion(.failure(error))
                 }
             case .failure(let err):
-                print("🔍 [Objection] Request error: \(err)")
+                serviceLogger.error("Objection request error: \(err.localizedDescription)")
                 completion(.failure(err))
             }
         }
     }
 
-    /// Ask the judge to rule, stripping code fences.
     func requestJudgeDecision(reason: String,
                               completion: @escaping (Result<JudgeDecision, Error>) -> Void) {
         let prompt = """
-        You are the judge. Counsel objected on the following ground: "\(reason)". \
-        Respond ONLY with JSON EXACTLY one of:
+        You are the judge. Counsel objected on the following ground: "\(reason)". Respond ONLY with JSON EXACTLY one of:
         {"decision": "sustain"}
         {"decision": "overrule"}
         """
+        serviceLogger.debug("Judge prompt: \(prompt, privacy: .public)")
         generateText(prompt: prompt) { result in
             switch result {
             case .success(let rawText):
-                print("🔍 [Judge] Raw text:\n\(rawText)")
+                serviceLogger.debug("Raw judge response: \(rawText, privacy: .public)")
                 var cleaned = rawText
                     .replacingOccurrences(of: "```json", with: "")
                     .replacingOccurrences(of: "```", with: "")
@@ -207,21 +205,21 @@ final class OpenAIService {
                 if cleaned.hasPrefix("\""), cleaned.hasSuffix("\"") {
                     cleaned = String(cleaned.dropFirst().dropLast())
                 }
-                print("🔍 [Judge] Cleaned JSON:\n\(cleaned)")
+                serviceLogger.debug("Cleaned judge JSON: \(cleaned, privacy: .public)")
                 guard let data = cleaned.data(using: .utf8) else {
                     completion(.failure(APIError.invalidResponse))
                     return
                 }
                 do {
                     let resp = try JSONDecoder().decode(JudgeDecision.self, from: data)
-                    print("🔍 [Judge] Parsed decision=\(resp.decision)")
+                    serviceLogger.debug("Parsed decision=\(resp.decision, privacy: .public)")
                     completion(.success(resp))
                 } catch {
-                    print("🔍 [Judge] JSON decode error: \(error)")
+                    serviceLogger.error("Judge JSON decode error: \(error.localizedDescription)")
                     completion(.failure(error))
                 }
             case .failure(let err):
-                print("🔍 [Judge] Request error: \(err)")
+                serviceLogger.error("Judge request error: \(err.localizedDescription)")
                 completion(.failure(err))
             }
         }
