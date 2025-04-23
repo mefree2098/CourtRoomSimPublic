@@ -20,7 +20,7 @@ struct TrialTranscriptView: View {
                 LazyVStack(alignment: .leading, spacing: 8) {
                     ForEach(events) { ev in
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(ev.speaker ?? "—")
+                            Text(formatSpeaker(ev.speaker ?? "—"))
                                 .font(.caption)
                                 .foregroundColor(.gray)
                             Text(ev.message ?? "")
@@ -37,5 +37,25 @@ struct TrialTranscriptView: View {
                 proxy.scrollTo(events.last?.id, anchor: .bottom)
             }
         }
+    }
+    
+    private func formatSpeaker(_ speaker: String) -> String {
+        // If the speaker is the judge, return as is
+        if speaker.lowercased() == "judge" {
+            return "Judge"
+        }
+        
+        // If it's a witness or other character, return their name
+        if !speaker.contains("(AI)") && !speaker.contains("Prosecution") && !speaker.contains("Defense") {
+            return speaker
+        }
+        
+        // For AI counsel, format as "Role Character Name (AI)"
+        if let role = speaker.components(separatedBy: " ").first,
+           let name = speaker.components(separatedBy: " ").last {
+            return "\(role) \(name) (AI)"
+        }
+        
+        return speaker
     }
 }

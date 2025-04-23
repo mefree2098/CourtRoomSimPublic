@@ -13,6 +13,7 @@ struct CasesListView: View {
 
     @State private var showNewCase = false
     @State private var showSettings = false
+    @State private var showNotebook = false
 
     var body: some View {
         List {
@@ -65,6 +66,17 @@ struct CasesListView: View {
                     Label("New Case", systemImage: "plus")
                 }
             }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if let selectedCase = activeCases.first {
+                    Button {
+                        showNotebook = true
+                    } label: {
+                        Image(systemName: "book")
+                            .imageScale(.large)
+                            .accessibilityLabel("Notebook")
+                    }
+                }
+            }
         }
         .sheet(isPresented: $showNewCase) {
             NewCaseView()
@@ -73,6 +85,12 @@ struct CasesListView: View {
         .sheet(isPresented: $showSettings) {
             SettingsView()
                 .environment(\.managedObjectContext, viewContext)
+        }
+        .sheet(isPresented: $showNotebook) {
+            if let selectedCase = activeCases.first {
+                NotebookView(caseEntity: selectedCase)
+                    .environment(\.managedObjectContext, viewContext)
+            }
         }
     }
 
@@ -91,4 +109,4 @@ struct CasesListView: View {
             print("Error deleting cases: \(error)")
         }
     }
-}
+} 

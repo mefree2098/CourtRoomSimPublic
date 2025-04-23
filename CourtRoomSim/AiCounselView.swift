@@ -55,7 +55,7 @@ struct AiCounselView: View {
                 .font(.headline)
 
             if awaitingUser {
-                // The AI’s question
+                // The AI's question
                 Text(pendingQuestion)
                     .padding()
                     .multilineTextAlignment(.center)
@@ -121,14 +121,26 @@ struct AiCounselView: View {
     private func askQuestion() {
         guard let w = currentWitness else { return }
         if askedQuestions.count >= questionLimit {
-            recordTranscript(roleName, "I rest my case.")
-            onFinishCase()
+            // Move to next witness or finish case
+            if let nextWitness = getNextWitness() {
+                currentWitness = nextWitness
+                contextSummary = ""
+                askedQuestions = []
+                recordTranscript(roleName, "I'll now call \(nextWitness.name ?? "the next witness").")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    askQuestion()
+                }
+            } else {
+                recordTranscript(roleName, "I rest my case.")
+                onFinishCase()
+            }
             return
         }
         isLoading = true
         let systemPrompt = """
         You are \(roleName). \
         Ask ONE concise question of \(w.name ?? "the witness") based on context.
+        You have asked \(askedQuestions.count) of \(questionLimit) questions.
         """
         let userPrompt = """
         Context: \(contextSummary)
@@ -145,8 +157,18 @@ struct AiCounselView: View {
                 case .success(let q):
                     let clean = q.trimmingCharacters(in: .whitespacesAndNewlines)
                     if clean.isEmpty || askedQuestions.contains(clean) {
-                        recordTranscript("Judge", "No further questions, your honor.")
-                        onFinishCase()
+                        if let nextWitness = getNextWitness() {
+                            currentWitness = nextWitness
+                            contextSummary = ""
+                            askedQuestions = []
+                            recordTranscript(roleName, "I'll now call \(nextWitness.name ?? "the next witness").")
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                                askQuestion()
+                            }
+                        } else {
+                            recordTranscript(roleName, "I rest my case.")
+                            onFinishCase()
+                        }
                     } else {
                         pendingQuestion = clean
                         awaitingUser = true
@@ -157,6 +179,17 @@ struct AiCounselView: View {
                 }
             }
         }
+    }
+
+    private func getNextWitness() -> CourtCharacter? {
+        let all = (caseEntity.witnesses as? Set<CourtCharacter> ?? [])
+            .sorted { ($0.name ?? "") < ($1.name ?? "") }
+        if let current = currentWitness,
+           let idx = all.firstIndex(of: current),
+           idx + 1 < all.count {
+            return all[idx + 1]
+        }
+        return nil
     }
 
     private func allowAnswer() {

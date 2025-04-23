@@ -11,11 +11,13 @@ struct OpeningStatementsView: View {
     var record: (_ speaker: String, _ message: String) -> Void
     var autoOpponent: (_ userText: String) -> Void
     var moveNext: () -> Void
+    @Environment(\.managedObjectContext) private var viewContext
 
     // MARK: – Local state
     @State private var statementText: String = ""
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var showNotebook = false
 
     var body: some View {
         VStack(spacing: 16) {
@@ -24,8 +26,11 @@ struct OpeningStatementsView: View {
 
             TextEditor(text: $statementText)
                 .frame(height: 200)
-                .overlay(RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.gray.opacity(0.5)))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                )
+                .padding(.horizontal)
 
             if let err = errorMessage {
                 Text(err)
@@ -34,32 +39,24 @@ struct OpeningStatementsView: View {
                     .padding(.horizontal)
             }
 
-            Button {
+            Button("Submit Statement") {
                 submitStatement()
-            } label: {
-                HStack {
-                    Spacer()
-                    if isLoading {
-                        ProgressView()
-                    } else {
-                        Text("Submit")
-                    }
-                    Spacer()
-                }
             }
-            .disabled(statementText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
+            .disabled(statementText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .padding(.horizontal)
 
             Spacer()
         }
         .padding()
-        .navigationTitle("Opening")
+        .navigationTitle("Opening Statements")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     private func submitStatement() {
         let text = statementText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
 
-        // 1) Record the user’s statement in the transcript
+        // 1) Record the user's statement in the transcript
         record(currentSpeaker, text)
 
         // 2) Ask the AI opponent to respond (this will call record + advanceStage)
