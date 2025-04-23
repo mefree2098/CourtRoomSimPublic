@@ -18,6 +18,7 @@ struct AiCounselView: View {
     @State private var pendingQuestion = ""
     @State private var awaitingUser = false
     @State private var isLoading = false
+    @State private var errorMessage: String?
 
     // Objection sheet
     @State private var showObjectionInput = false
@@ -200,9 +201,7 @@ struct AiCounselView: View {
         gptWitnessAnswer(w.name ?? "", pendingQuestion, contextSummary) { ans in
             recordTranscript(w.name ?? "", ans)
             contextSummary += "Q: \(pendingQuestion)\nA: \(ans)\n"
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                askQuestion()
-            }
+            askQuestion()
         }
     }
 

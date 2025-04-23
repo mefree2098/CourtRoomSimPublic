@@ -290,9 +290,7 @@ struct DirectExaminationView: View {
                 selected = nil
                 directLogger.debug("Finished with witness \(name), moving to next witness")
                 record(roleName, "No further questions, your honor.")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                    selectNextAiWitness()
-                }
+                selectNextAiWitness()
             } else {
                 directLogger.debug("Finished with last witness \(name), resting case")
                 record(roleName, "No further questions, your honor.")
@@ -354,9 +352,7 @@ struct DirectExaminationView: View {
                             aiWitnessIndex += 1
                             selected = nil
                             record(roleName, "No further questions, your honor.")
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                                selectNextAiWitness()
-                            }
+                            selectNextAiWitness()
                         } else {
                             record(roleName, "No further questions, your honor.")
                             record(roleName, "I rest my case.")
