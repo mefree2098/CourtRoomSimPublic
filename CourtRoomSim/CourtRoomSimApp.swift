@@ -10,13 +10,23 @@ private let logger = Logger(subsystem: "com.pura.CourtRoomSim", category: "App")
 
 struct LoadingView: View {
     var body: some View {
-        VStack(spacing: 20) {
-            ProgressView {
-                Text("Loading...")
-            }
-            .scaleEffect(1.5)
-            Text("Loading Cases...")
-                .font(.headline)
+        VStack(spacing: 24) {
+            Image(systemName: "building.columns.fill")
+                .font(.system(size: 60))
+                .foregroundColor(.accentColor)
+                .symbolEffect(.bounce, options: .repeating)
+            
+            ProgressView()
+                .scaleEffect(1.2)
+                .tint(.accentColor)
+            
+            Text("Preparing Courtroom")
+                .font(.title2)
+                .fontWeight(.medium)
+            
+            Text("Loading case files...")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(.systemBackground))
@@ -31,7 +41,9 @@ struct MainContentView: View {
             CasesListView()
             Text("Select or create a case")
                 .foregroundColor(.secondary)
+                .font(.title3)
         }
+        .navigationViewStyle(.stack)
     }
 }
 

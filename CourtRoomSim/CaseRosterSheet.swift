@@ -9,21 +9,19 @@ struct CaseRosterSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationView {
-            List {
-                rosterSection("Judge", [caseEntity.judge])
-                rosterSection("Opposing Counsel", [caseEntity.opposingCounsel])
-                rosterSection("Victim", [caseEntity.victim])
-                rosterSection("Suspect", [caseEntity.suspect])
-                rosterSetSection("Police", set: caseEntity.police)
-                rosterSetSection("Witnesses", set: caseEntity.witnesses)
-                rosterSetSection("Jury (\(juryCount))", set: caseEntity.jury)
-            }
-            .navigationTitle("Case Roster")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
-                }
+        List {
+            rosterSection("Judge", [caseEntity.judge])
+            rosterSection("Opposing Counsel", [caseEntity.opposingCounsel])
+            rosterSection("Victim", [caseEntity.victim])
+            rosterSection("Suspect", [caseEntity.suspect])
+            rosterSetSection("Police", set: caseEntity.police)
+            rosterSetSection("Witnesses", set: caseEntity.witnesses)
+            rosterSetSection("Jury (\(juryCount))", set: caseEntity.jury)
+        }
+        .navigationTitle("Case Roster")
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Done") { dismiss() }
             }
         }
     }

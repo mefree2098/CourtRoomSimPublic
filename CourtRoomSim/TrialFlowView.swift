@@ -46,107 +46,125 @@ struct TrialFlowView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
+                // Stage indicator
+                StageProgressView(currentStage: currentStage)
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                
                 Divider()
+                
                 ZStack {
                     VStack(spacing: 0) {
                         TrialTranscriptView(events: trialEvents)
-                        if let err = errorMessage {
-                            Text(err)
-                                .foregroundColor(.red)
-                                .padding(.vertical, 2)
-                        }
+                            .overlay(alignment: .bottom) {
+                                if let err = errorMessage {
+                                    Text(err)
+                                        .foregroundColor(.red)
+                                        .padding()
+                                        .background(.ultraThinMaterial)
+                                        .cornerRadius(8)
+                                        .padding()
+                                }
+                            }
+                        
                         if isLoading {
                             ProgressView()
-                                .padding(.vertical, 2)
+                                .padding()
+                                .background(.ultraThinMaterial)
+                                .cornerRadius(8)
+                                .padding()
                         }
+                        
                         Divider()
-                        switch currentStage {
-                        case .openingStatements:
-                            OpeningStatementsView(
-                                caseEntity: caseEntity,
-                                currentSpeaker: $currentSpeaker,
-                                record: recordEvent,
-                                autoOpponent: gptOpponentStatement,
-                                moveNext: advanceStageAndPersist
-                            )
-                        case .prosecutionCase:
-                            if isUserProsecutor {
-                                DirectExaminationView(
-                                    roleName: "Prosecution",
+                        
+                        // Main content area
+                        Group {
+                            switch currentStage {
+                            case .openingStatements:
+                                OpeningStatementsView(
                                     caseEntity: caseEntity,
+                                    currentSpeaker: $currentSpeaker,
                                     record: recordEvent,
-                                    gptAnswer: gptWitnessAnswer,
-                                    gptCross: gptOpponentCrossExam,
-                                    isLoading: $isLoading,
-                                    lockWitness: true,
-                                    finishCase: advanceStageAndPersist,
-                                    onPlanUpdate: buildPlan
+                                    autoOpponent: gptOpponentStatement,
+                                    moveNext: advanceStageAndPersist
                                 )
-                            } else {
-                                DirectExaminationView(
-                                    roleName: "Prosecution (AI)",
-                                    caseEntity: caseEntity,
-                                    record: recordEvent,
-                                    gptAnswer: gptWitnessAnswer,
-                                    gptCross: gptOpponentCrossExam,
-                                    isLoading: $isLoading,
-                                    lockWitness: true,
-                                    finishCase: advanceStageAndPersist,
-                                    onPlanUpdate: buildPlan
-                                )
-                            }
-                        case .defenseCase:
-                            if !isUserProsecutor {
-                                DirectExaminationView(
-                                    roleName: "Defense",
-                                    caseEntity: caseEntity,
-                                    record: recordEvent,
-                                    gptAnswer: gptWitnessAnswer,
-                                    gptCross: gptOpponentCrossExam,
-                                    isLoading: $isLoading,
-                                    lockWitness: true,
-                                    finishCase: advanceStageAndPersist,
-                                    onPlanUpdate: buildPlan
-                                )
-                            } else {
-                                DirectExaminationView(
-                                    roleName: "Defense (AI)",
-                                    caseEntity: caseEntity,
-                                    record: recordEvent,
-                                    gptAnswer: gptWitnessAnswer,
-                                    gptCross: gptOpponentCrossExam,
-                                    isLoading: $isLoading,
-                                    lockWitness: true,
-                                    finishCase: advanceStageAndPersist,
-                                    onPlanUpdate: buildPlan
-                                )
-                            }
-                        case .closingArguments:
-                            ClosingArgumentsView(
-                                caseEntity: caseEntity,
-                                currentSpeaker: $currentSpeaker,
-                                record: recordEvent,
-                                autoOpponent: gptOpponentStatement,
-                                moveNext: advanceStageAndPersist
-                            )
-                        case .juryDeliberation:
-                            JuryDeliberationView(
-                                caseEntity: caseEntity,
-                                recordTranscript: recordEvent,
-                                finalizeVerdict: { verdict in
-                                    setVerdict(verdict)
-                                    persistStage(.verdict)
+                            case .prosecutionCase:
+                                if isUserProsecutor {
+                                    DirectExaminationView(
+                                        roleName: "Prosecution",
+                                        caseEntity: caseEntity,
+                                        record: recordEvent,
+                                        gptAnswer: gptWitnessAnswer,
+                                        gptCross: gptOpponentCrossExam,
+                                        isLoading: $isLoading,
+                                        lockWitness: true,
+                                        finishCase: advanceStageAndPersist,
+                                        onPlanUpdate: buildPlan
+                                    )
+                                } else {
+                                    DirectExaminationView(
+                                        roleName: "Prosecution (AI)",
+                                        caseEntity: caseEntity,
+                                        record: recordEvent,
+                                        gptAnswer: gptWitnessAnswer,
+                                        gptCross: gptOpponentCrossExam,
+                                        isLoading: $isLoading,
+                                        lockWitness: true,
+                                        finishCase: advanceStageAndPersist,
+                                        onPlanUpdate: buildPlan
+                                    )
                                 }
-                            )
-                        case .verdict:
-                            VStack(spacing: 16) {
-                                Text("Verdict: \(caseEntity.verdict ?? "Undecided")")
-                                    .font(.largeTitle)
-                                    .bold()
-                                Button("Close Case") { dismiss() }
-                                    .padding()
+                            case .defenseCase:
+                                if !isUserProsecutor {
+                                    DirectExaminationView(
+                                        roleName: "Defense",
+                                        caseEntity: caseEntity,
+                                        record: recordEvent,
+                                        gptAnswer: gptWitnessAnswer,
+                                        gptCross: gptOpponentCrossExam,
+                                        isLoading: $isLoading,
+                                        lockWitness: true,
+                                        finishCase: advanceStageAndPersist,
+                                        onPlanUpdate: buildPlan
+                                    )
+                                } else {
+                                    DirectExaminationView(
+                                        roleName: "Defense (AI)",
+                                        caseEntity: caseEntity,
+                                        record: recordEvent,
+                                        gptAnswer: gptWitnessAnswer,
+                                        gptCross: gptOpponentCrossExam,
+                                        isLoading: $isLoading,
+                                        lockWitness: true,
+                                        finishCase: advanceStageAndPersist,
+                                        onPlanUpdate: buildPlan
+                                    )
+                                }
+                            case .closingArguments:
+                                ClosingArgumentsView(
+                                    caseEntity: caseEntity,
+                                    currentSpeaker: $currentSpeaker,
+                                    record: recordEvent,
+                                    autoOpponent: gptOpponentStatement,
+                                    moveNext: advanceStageAndPersist
+                                )
+                            case .juryDeliberation:
+                                JuryDeliberationView(
+                                    caseEntity: caseEntity,
+                                    recordTranscript: recordEvent,
+                                    finalizeVerdict: { verdict in
+                                        setVerdict(verdict)
+                                        persistStage(.verdict)
+                                    }
+                                )
+                            case .verdict:
+                                VerdictView(
+                                    verdict: caseEntity.verdict ?? "Undecided",
+                                    onDismiss: { dismiss() }
+                                )
                             }
                         }
+                        .transition(.opacity)
                     }
 
                     if isBuildingPlan {
@@ -155,33 +173,48 @@ struct TrialFlowView: View {
                             .edgesIgnoringSafeArea(.all)
                         VStack(spacing: 16) {
                             ProgressView()
+                                .scaleEffect(1.2)
                             Text(planOverlayText)
                                 .font(.headline)
+                                .multilineTextAlignment(.center)
                         }
+                        .padding()
+                        .background(.ultraThinMaterial)
+                        .cornerRadius(12)
+                        .padding()
                     }
                 }
             }
             .navigationTitle("Trial")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Case Roster") { showRoster = true }
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { showNotebook = true }) {
-                        Image(systemName: "book")
-                            .imageScale(.large)
-                            .accessibilityLabel("Notebook")
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    Button {
+                        showRoster = true
+                    } label: {
+                        Label("Case Roster", systemImage: "person.3")
                     }
+                    .help("View case roster")
+                    
+                    Button {
+                        showNotebook = true
+                    } label: {
+                        Label("Notebook", systemImage: "book")
+                    }
+                    .help("Open case notebook")
                 }
             }
             .sheet(isPresented: $showRoster) {
-                CaseRosterSheet(caseEntity: caseEntity)
-                    .environment(\.managedObjectContext, viewContext)
+                NavigationView {
+                    CaseRosterSheet(caseEntity: caseEntity)
+                        .environment(\.managedObjectContext, viewContext)
+                }
             }
             .sheet(isPresented: $showNotebook) {
-                NotebookView(caseEntity: caseEntity)
-                    .environment(\.managedObjectContext, viewContext)
+                NavigationView {
+                    NotebookView(caseEntity: caseEntity)
+                        .environment(\.managedObjectContext, viewContext)
+                }
             }
             .onAppear {
                 ensureJudgeAndJury()
@@ -521,5 +554,87 @@ struct TrialFlowView: View {
                 }
             }
         }
+    }
+}
+
+struct StageProgressView: View {
+    let currentStage: TrialStage
+    
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(TrialStage.allCases, id: \.self) { stage in
+                    StageIndicator(
+                        stage: stage,
+                        isActive: stage == currentStage,
+                        isCompleted: stage.rawValue < currentStage.rawValue
+                    )
+                }
+            }
+            .padding(.horizontal)
+        }
+    }
+}
+
+struct StageIndicator: View {
+    let stage: TrialStage
+    let isActive: Bool
+    let isCompleted: Bool
+    
+    var body: some View {
+        VStack(spacing: 4) {
+            Circle()
+                .fill(backgroundColor)
+                .frame(width: 12, height: 12)
+                .overlay(
+                    Circle()
+                        .strokeBorder(isActive ? Color.accentColor : .clear, lineWidth: 2)
+                )
+            
+            Text(stage.rawValue)
+                .font(.caption)
+                .foregroundColor(isActive ? .primary : .secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+        }
+    }
+    
+    private var backgroundColor: Color {
+        if isCompleted {
+            return .accentColor
+        } else if isActive {
+            return .accentColor.opacity(0.3)
+        } else {
+            return .secondary.opacity(0.3)
+        }
+    }
+}
+
+struct VerdictView: View {
+    let verdict: String
+    let onDismiss: () -> Void
+    
+    var body: some View {
+        VStack(spacing: 24) {
+            Image(systemName: "gavel")
+                .font(.system(size: 60))
+                .foregroundColor(.accentColor)
+            
+            Text("Verdict")
+                .font(.title)
+                .fontWeight(.bold)
+            
+            Text(verdict)
+                .font(.title2)
+                .multilineTextAlignment(.center)
+                .padding()
+                .background(.ultraThinMaterial)
+                .cornerRadius(12)
+            
+            Button("Close Case", action: onDismiss)
+                .buttonStyle(.borderedProminent)
+                .padding(.top)
+        }
+        .padding()
     }
 }
