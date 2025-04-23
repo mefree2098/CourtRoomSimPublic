@@ -13,28 +13,104 @@ struct TrialTranscriptView: View {
 
     // A plain FetchedResults list of TrialEvent objects
     var events: FetchedResults<TrialEvent>
-
+    
+    // Search state
+    @State private var searchText = ""
+    @State private var searchResults: [UUID] = []
+    @State private var currentSearchIndex = 0
+    @State private var isSearching = false
+    @State private var scrollProxy: ScrollViewProxy?
+    
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 8) {
-                    ForEach(events) { ev in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(formatSpeaker(ev.speaker ?? "—"))
-                                .font(.caption)
-                                .foregroundColor(.gray)
-                            Text(ev.message ?? "")
-                                .padding(6)
-                                .background(Color.gray.opacity(0.1))
-                                .cornerRadius(6)
+        VStack(spacing: 0) {
+            // Search bar
+            if isSearching {
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(.secondary)
+                    TextField("Search transcript...", text: $searchText)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .onChange(of: searchText) { _ in
+                            performSearch()
                         }
-                        .id(ev.id)        // for auto‑scroll
+                    
+                    if !searchResults.isEmpty {
+                        Text("\(currentSearchIndex + 1) of \(searchResults.count)")
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                        
+                        Button {
+                            currentSearchIndex = (currentSearchIndex + 1) % searchResults.count
+                            scrollToSearchResult()
+                        } label: {
+                            Image(systemName: "chevron.down")
+                        }
+                        .disabled(searchResults.isEmpty)
+                        
+                        Button {
+                            currentSearchIndex = (currentSearchIndex - 1 + searchResults.count) % searchResults.count
+                            scrollToSearchResult()
+                        } label: {
+                            Image(systemName: "chevron.up")
+                        }
+                        .disabled(searchResults.isEmpty)
+                    }
+                    
+                    Button {
+                        isSearching = false
+                        searchText = ""
+                        searchResults = []
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.secondary)
                     }
                 }
                 .padding(.horizontal)
+                .padding(.vertical, 8)
             }
-            .onChange(of: events.count) { _ in
-                proxy.scrollTo(events.last?.id, anchor: .bottom)
+            
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        ForEach(events) { ev in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(formatSpeaker(ev.speaker ?? "—"))
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
+                                Text(ev.message ?? "")
+                                    .padding(6)
+                                    .background(
+                                        searchResults.contains(ev.id ?? UUID()) ?
+                                        Color.yellow.opacity(0.3) :
+                                        Color.gray.opacity(0.1)
+                                    )
+                                    .cornerRadius(6)
+                            }
+                            .id(ev.id)        // for auto‑scroll
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+                .onChange(of: events.count) { _ in
+                    proxy.scrollTo(events.last?.id, anchor: .bottom)
+                }
+                .onAppear {
+                    scrollProxy = proxy
+                }
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    isSearching.toggle()
+                    if !isSearching {
+                        searchText = ""
+                        searchResults = []
+                    }
+                } label: {
+                    Image(systemName: isSearching ? "magnifyingglass.circle.fill" : "magnifyingglass")
+                }
+                .help("Search transcript")
             }
         }
     }
@@ -57,5 +133,33 @@ struct TrialTranscriptView: View {
         }
         
         return speaker
+    }
+    
+    private func performSearch() {
+        guard !searchText.isEmpty else {
+            searchResults = []
+            return
+        }
+        
+        searchResults = events
+            .filter { event in
+                let message = event.message?.lowercased() ?? ""
+                let speaker = event.speaker?.lowercased() ?? ""
+                return message.contains(searchText.lowercased()) ||
+                       speaker.contains(searchText.lowercased())
+            }
+            .compactMap { $0.id }
+        
+        currentSearchIndex = 0
+        if !searchResults.isEmpty {
+            scrollToSearchResult()
+        }
+    }
+    
+    private func scrollToSearchResult() {
+        guard !searchResults.isEmpty else { return }
+        withAnimation {
+            scrollProxy?.scrollTo(searchResults[currentSearchIndex], anchor: .center)
+        }
     }
 }
