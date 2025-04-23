@@ -26,8 +26,17 @@ struct CaseGenerationManager {
         let systemPrompt = "You are a legal scenario generator. Return STRICT JSON only."
         let userPrompt = """
         Create a NEW criminal case for a \(role.rawValue). \
-        Include at least one victim, one suspect, two witnesses, one police officer, one counsel, and one judge. \
-        You may include murder cases. \
+        Include the following characters with VARIED QUANTITIES: \
+        - 1-3 victims (depending on the crime type) \
+        - 1 suspect \
+        - 2-4 witnesses (not just the minimum of 2) \
+        - 1-3 police officers (not just 1) \
+        - 1 counsel \
+        - 1 judge \
+        Generate a RANDOM criminal case type from this list: theft, burglary, assault, fraud, embezzlement, drug trafficking, arson, robbery, kidnapping, or murder. \
+        IMPORTANT: You MUST randomly select a crime type from the list. Do NOT default to murder. \
+        Each crime type should have an equal chance of being selected. \
+        For the victim field, you can provide either a single victim object or an array of 1-3 victim objects. \
         Keys must be: crimeType, scenarioSummary, victim, suspect, witnesses, police, counsel, judge, trueGuiltyParty, groundTruth. \
         Do NOT wrap the JSON in markdown fences.
         """
@@ -41,17 +50,29 @@ struct CaseGenerationManager {
                 "properties": [
                     "crimeType": ["type": "string"],
                     "scenarioSummary": ["type": "string"],
-                    "victim": ["$ref": "#/definitions/Character"],
+                    "victim": [
+                        "oneOf": [
+                            ["$ref": "#/definitions/Character"],
+                            [
+                                "type": "array",
+                                "items": ["$ref": "#/definitions/Character"],
+                                "minItems": 1,
+                                "maxItems": 3
+                            ]
+                        ]
+                    ],
                     "suspect": ["$ref": "#/definitions/Character"],
                     "witnesses": [
                         "type": "array",
                         "items": ["$ref": "#/definitions/Character"],
-                        "minItems": 2
+                        "minItems": 2,
+                        "maxItems": 4
                     ],
                     "police": [
                         "type": "array",
                         "items": ["$ref": "#/definitions/Character"],
-                        "minItems": 1
+                        "minItems": 1,
+                        "maxItems": 3
                     ],
                     "counsel": ["$ref": "#/definitions/Character"],
                     "judge": ["$ref": "#/definitions/Character"],
@@ -197,7 +218,24 @@ struct CaseGenerationManager {
             return char
         }
 
-        c.victim = build(dict["victim"],  defaultRole: "Victim")
+        // Handle victim(s) - support both single victim and array of victims
+        if let victims = dict["victim"] as? [[String:Any]], !victims.isEmpty {
+            // Multiple victims case
+            if let firstVictim = build(victims[0], defaultRole: "Victim") {
+                c.victim = firstVictim
+                
+                // Add additional victims to witnesses
+                for i in 1..<victims.count {
+                    if let victimChar = build(victims[i], defaultRole: "Victim") {
+                        c.addToWitnesses(victimChar)
+                    }
+                }
+            }
+        } else if let singleVictim = dict["victim"] as? [String:Any] {
+            // Single victim case (original format)
+            c.victim = build(singleVictim, defaultRole: "Victim")
+        }
+        
         c.suspect = build(dict["suspect"], defaultRole: "Suspect")
 
         (dict["witnesses"] as? [[String:Any]])?
@@ -246,12 +284,20 @@ struct CaseGenerationManager {
     ) {
         // Collect all characters
         var chars: [CourtCharacter] = []
-        [caseEntity.victim, caseEntity.suspect,
-         caseEntity.opposingCounsel, caseEntity.judge]
+        
+        // Add primary victim
+        if let victim = caseEntity.victim {
+            chars.append(victim)
+        }
+        
+        // Add suspect, counsel, and judge
+        [caseEntity.suspect, caseEntity.opposingCounsel, caseEntity.judge]
             .compactMap { $0 }
             .forEach { chars.append($0) }
+            
+        // Add witnesses and police
         chars += (caseEntity.witnesses as? Set<CourtCharacter>) ?? []
-        chars += (caseEntity.police    as? Set<CourtCharacter>) ?? []
+        chars += (caseEntity.police as? Set<CourtCharacter>) ?? []
 
         // API key fallback
         let defaultKey = UserDefaults.standard.string(forKey: "openAIKey")?
